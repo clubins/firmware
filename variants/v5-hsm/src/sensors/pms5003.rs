@@ -399,76 +399,8 @@ mod tests {
     use super::*;
     use crate::dispatcher::Machine;
     use crate::sensors::clock::SharedClock;
-    use crate::sensors::uart::UartError;
-    use alloc::collections::VecDeque;
+    use crate::sensors::uart::{SharedUart, UartError, UartStep};
     use alloc::vec::Vec;
-
-    /// A UART the test scripts: `rx` hands out recorded byte chunks in
-    /// order, `written` logs what the driver sent, and the fail flags
-    /// fault the next transaction once. Clones share one state (`Rc`),
-    /// so the driver's log is the test's log.
-    #[derive(Clone, Default)]
-    struct FakeUart(alloc::rc::Rc<core::cell::RefCell<UartState>>);
-
-    #[derive(Default)]
-    struct UartState {
-        rx: VecDeque<Vec<u8>>,
-        written: Vec<Vec<u8>>,
-        fail_write: bool,
-        fail_read: bool,
-    }
-
-    impl FakeUart {
-        fn new(chunks: &[&[u8]]) -> Self {
-            Self(alloc::rc::Rc::new(core::cell::RefCell::new(UartState {
-                rx: VecDeque::from_iter(chunks.iter().map(|c| Vec::from(*c))),
-                ..Default::default()
-            })))
-        }
-
-        /// The written-command log, for shape assertions.
-        fn written(&self) -> Vec<Vec<u8>> {
-            self.0.borrow().written.clone()
-        }
-
-        fn fail_next_write(&self) {
-            self.0.borrow_mut().fail_write = true;
-        }
-
-        fn fail_next_read(&self) {
-            self.0.borrow_mut().fail_read = true;
-        }
-    }
-
-    impl UartIo for FakeUart {
-        fn write(&mut self, bytes: &[u8]) -> Result<(), UartError> {
-            let mut s = self.0.borrow_mut();
-            s.written.push(Vec::from(bytes));
-            if s.fail_write {
-                s.fail_write = false;
-                return Err(UartError::Other);
-            }
-            Ok(())
-        }
-
-        fn read(&mut self, buf: &mut [u8]) -> Result<usize, UartError> {
-            let mut s = self.0.borrow_mut();
-            if s.fail_read {
-                s.fail_read = false;
-                return Err(UartError::Other);
-            }
-            let Some(chunk) = s.rx.front_mut() else {
-                return Ok(0);
-            };
-            let n = chunk.len().min(buf.len());
-            buf[..n].copy_from_slice(&chunk[..n]);
-            chunk.drain(..n);
-            if chunk.is_empty() {
-                s.rx.pop_front();
-            }
-            Ok(n)
-        }
-    }
 
     /// The 32-byte frame for the given atmospheric concentrations
     /// (PM1.0, PM2.5, PM10.0), checksum included.
@@ -498,10 +430,21 @@ mod tests {
         f
     }
 
+    /// The bring-up script: the passive-mode command, byte-exact.
+    fn bring_up_script() -> Vec<UartStep> {
+        vec![UartStep::Write(Vec::from(CMD_PASSIVE))]
+    }
+
     /// A machine mid-measurement: brought up, in POLLING with the read
-    /// request written, UART preloaded with `chunks`.
-    fn polling(chunks: &[&[u8]]) -> (HsmMachine<Driver>, FakeUart) {
-        let uart = FakeUart::new(chunks);
+    /// request written and the UART scripted with the read command plus
+    /// `chunks` of the reply stream.
+    fn polling(chunks: &[&[u8]]) -> (HsmMachine<Driver>, SharedUart) {
+        let mut script = vec![
+            UartStep::Write(Vec::from(CMD_PASSIVE)),
+            UartStep::Write(Vec::from(CMD_READ)),
+        ];
+        script.extend(chunks.iter().map(|c| UartStep::Read(Vec::from(*c))));
+        let uart = SharedUart::new(script);
         let mut m = driver(Box::new(uart.clone()), Box::new(SharedClock::new(0)));
         let mut sink = |_: Event| {};
         let mut out = Ctx { post: &mut sink };
@@ -516,7 +459,7 @@ mod tests {
 
     #[test]
     fn bring_up_sets_passive_mode_then_sits_ready() {
-        let uart = FakeUart::new(&[]);
+        let uart = SharedUart::new(bring_up_script());
         let mut m = driver(Box::new(uart.clone()), Box::new(SharedClock::new(0)));
         let mut sink = |_: Event| {};
         let mut out = Ctx { post: &mut sink };
@@ -526,6 +469,7 @@ mod tests {
         m.handle(&Event::new(SIG_TICK), &mut out);
         assert_eq!(m.hsm.current(), READY);
         assert_eq!(uart.written(), vec![Vec::from(CMD_PASSIVE)]);
+        uart.expect_done();
     }
 
     #[test]
@@ -556,12 +500,13 @@ mod tests {
             uart.written(),
             vec![Vec::from(CMD_PASSIVE), Vec::from(CMD_READ)]
         );
+        uart.expect_done();
     }
 
     #[test]
     fn a_frame_split_across_chunks_still_parses() {
         let good = frame((100, 200, 300));
-        let (mut m, _uart) = polling(&[&good[..10], &good[10..21], &good[21..]]);
+        let (mut m, uart) = polling(&[&good[..10], &good[10..21], &good[21..]]);
         let mut sink = |_: Event| {};
         let mut out = Ctx { post: &mut sink };
         // Two drains land partial chunks — the machine stays polling.
@@ -574,27 +519,29 @@ mod tests {
         assert_eq!(m.hsm.current(), READY);
         assert_eq!(m.data.measurements, 1);
         assert_eq!(m.data.faults, 0);
+        uart.expect_done();
     }
 
     #[test]
     fn noise_before_the_start_pair_is_skipped() {
         let good = frame((1, 2, 3));
-        let mut noisy = alloc::vec::Vec::new();
+        let mut noisy = Vec::new();
         noisy.extend_from_slice(&[0x00, 0xFF, 0x42, 0x00]);
         noisy.extend_from_slice(&good);
-        let (mut m, _uart) = polling(&[&noisy]);
+        let (mut m, uart) = polling(&[&noisy]);
         let mut sink = |_: Event| {};
         let mut out = Ctx { post: &mut sink };
         m.handle(&Event::new(SIG_TICK), &mut out);
         assert_eq!(m.hsm.current(), READY);
         assert_eq!(m.data.measurements, 1);
         assert_eq!(m.data.faults, 0);
+        uart.expect_done();
     }
 
     #[test]
     fn a_corrupt_frame_drops_the_reading_but_stays_up() {
         let bad = corrupt(frame((12, 34, 56)));
-        let (mut m, _uart) = polling(&[&bad]);
+        let (mut m, uart) = polling(&[&bad]);
         let mut sink = |_: Event| {};
         let mut out = Ctx { post: &mut sink };
         m.handle(&Event::new(SIG_TICK), &mut out);
@@ -602,14 +549,26 @@ mod tests {
         assert!(m.data.reading.is_none());
         assert_eq!(m.data.measurements, 0);
         assert_eq!(m.data.faults, 1);
+        uart.expect_done();
     }
 
     #[test]
     fn an_error_code_frame_parks_in_fault_until_reengaged() {
         let bad = error_frame(frame((12, 34, 56)));
-        let (mut m, uart) = polling(&[&bad]);
+        // The re-engage after the fault writes the passive command again.
+        let uart = SharedUart::new([
+            UartStep::Write(Vec::from(CMD_PASSIVE)),
+            UartStep::Write(Vec::from(CMD_READ)),
+            UartStep::Read(Vec::from(bad)),
+            UartStep::Write(Vec::from(CMD_PASSIVE)),
+        ]);
+        let mut m = driver(Box::new(uart.clone()), Box::new(SharedClock::new(0)));
         let mut sink = |_: Event| {};
         let mut out = Ctx { post: &mut sink };
+        m.start(&mut out);
+        m.handle(&Event::new(SIG_ENGAGE), &mut out);
+        m.handle(&Event::new(SIG_TICK), &mut out);
+        m.handle(&Event::new(SIG_PMS5003_FRAME), &mut out);
         m.handle(&Event::new(SIG_TICK), &mut out);
         assert_eq!(m.hsm.current(), FAULT);
         assert!(m.data.reading.is_none());
@@ -618,13 +577,17 @@ mod tests {
         m.handle(&Event::new(SIG_TICK), &mut out);
         assert_eq!(m.hsm.current(), READY);
         assert_eq!(uart.written().len(), 3); // passive, read, passive again
+        uart.expect_done();
     }
 
     #[test]
     fn a_missing_frame_times_out_and_retries() {
         let clock = SharedClock::new(0);
-        let uart = FakeUart::new(&[]);
-        let mut m = driver(Box::new(uart), Box::new(clock.clone()));
+        let uart = SharedUart::new([
+            UartStep::Write(Vec::from(CMD_PASSIVE)),
+            UartStep::Write(Vec::from(CMD_READ)),
+        ]);
+        let mut m = driver(Box::new(uart.clone()), Box::new(clock.clone()));
         let mut sink = |_: Event| {};
         let mut out = Ctx { post: &mut sink };
         m.start(&mut out);
@@ -647,19 +610,37 @@ mod tests {
     #[test]
     fn a_failed_uart_read_counts_a_fault_and_retries() {
         let good = frame((12, 34, 56));
-        let (mut m, uart) = polling(&[&good]);
-        uart.fail_next_read();
+        let mut script = vec![
+            UartStep::Write(Vec::from(CMD_PASSIVE)),
+            UartStep::Write(Vec::from(CMD_READ)),
+            UartStep::Fail(UartError::Other),
+            // The retry round re-issues the read request, then gets the
+            // frame that waited behind the failure.
+            UartStep::Write(Vec::from(CMD_READ)),
+            UartStep::Read(Vec::from(good)),
+        ];
+        let uart = SharedUart::new(script);
+        let mut m = driver(Box::new(uart.clone()), Box::new(SharedClock::new(0)));
         let mut sink = |_: Event| {};
         let mut out = Ctx { post: &mut sink };
+        m.start(&mut out);
+        m.handle(&Event::new(SIG_ENGAGE), &mut out);
+        m.handle(&Event::new(SIG_TICK), &mut out);
+        m.handle(&Event::new(SIG_PMS5003_FRAME), &mut out);
         m.handle(&Event::new(SIG_TICK), &mut out);
         assert_eq!(m.hsm.current(), READY);
         assert_eq!(m.data.faults, 1);
+        // The next drain still reads the frame that waited behind the
+        // failure.
+        m.handle(&Event::new(SIG_PMS5003_FRAME), &mut out);
+        m.handle(&Event::new(SIG_TICK), &mut out);
+        assert_eq!(m.data.measurements, 1);
+        uart.expect_done();
     }
 
     #[test]
     fn a_failed_passive_mode_command_counts_a_fault() {
-        let uart = FakeUart::new(&[]);
-        uart.fail_next_write();
+        let uart = SharedUart::new([UartStep::Fail(UartError::Other)]);
         let mut m = driver(Box::new(uart.clone()), Box::new(SharedClock::new(0)));
         let mut sink = |_: Event| {};
         let mut out = Ctx { post: &mut sink };
@@ -717,15 +698,31 @@ mod tests {
         assert_eq!(buf.feed(&good[2..]), Some(good));
         // The buffer restarts for the next frame.
         assert_eq!(buf.feed(&good), Some(good));
-        // Noise containing a false 0x42 0x4D pair is consumed and then
-        // fails validation at the parser, not the reassembler.
-        let mut noisy = alloc::vec::Vec::new();
-        noisy.extend_from_slice(&good);
-        noisy.extend_from_slice(&good);
+        // Back-to-back frames in one chunk: the feed stops at the first
+        // completed frame, and the next drain takes the second.
+        let mut both = Vec::new();
+        both.extend_from_slice(&good);
+        both.extend_from_slice(&good);
         let mut buf = FrameBuf::new();
-        // The feed stops at the first completed frame — the remainder
-        // of the chunk is drained on the next read.
-        assert_eq!(buf.feed(&noisy), Some(good));
-        assert_eq!(buf.feed(&noisy[FRAME_LEN..]), Some(good));
+        assert_eq!(buf.feed(&both), Some(good));
+        assert_eq!(buf.feed(&both[FRAME_LEN..]), Some(good));
+    }
+
+    #[test]
+    fn a_frame_completes_no_matter_how_the_stream_splits() {
+        let good = frame((9, 8, 7));
+        for s in 0..=FRAME_LEN {
+            let mut buf = FrameBuf::new();
+            assert_eq!(
+                buf.feed(&good[..s]),
+                if s == FRAME_LEN { Some(good) } else { None },
+                "split at {s}: the first chunk must not complete the frame"
+            );
+            assert_eq!(
+                buf.feed(&good[s..]),
+                if s == FRAME_LEN { None } else { Some(good) },
+                "split at {s}: the second chunk must finish the frame"
+            );
+        }
     }
 }
