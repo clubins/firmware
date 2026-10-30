@@ -68,8 +68,9 @@ mod tests {
 
     use super::*;
     use crate::events::{Co2Sample, DecibelSample, MeasurementPayload, StatusResult};
+    use crate::session::Sequencer;
 
-    fn decibel_event(laeq: f32) -> MeasurementEvent {
+    fn decibel_event(seq: u32, laeq: f32) -> MeasurementEvent {
         MeasurementEvent {
             payload: MeasurementPayload::Decibel(DecibelSample {
                 window_ms: 1000,
@@ -81,17 +82,19 @@ mod tests {
                 lc_fmax: laeq + 12.0,
             }),
             time_ms: 0,
+            seq,
         }
     }
 
     #[test]
     fn measurements_round_trip_in_send_order() {
         let queues = Queues::new();
-        assert!(queues.measurements.try_send(decibel_event(90.0)).is_ok());
-        assert!(queues.measurements.try_send(decibel_event(91.5)).is_ok());
-        assert!(queues.measurements.try_send(decibel_event(93.0)).is_ok());
+        assert!(queues.measurements.try_send(decibel_event(0, 90.0)).is_ok());
+        assert!(queues.measurements.try_send(decibel_event(1, 91.5)).is_ok());
+        assert!(queues.measurements.try_send(decibel_event(2, 93.0)).is_ok());
 
-        // FIFO: the first event sent is the first event received.
+        // FIFO: the first event sent is the first event received, seq
+        // included.
         let first = block_on(queues.measurements.receive());
         let second = block_on(queues.measurements.receive());
         match (first.payload, second.payload) {
@@ -99,6 +102,8 @@ mod tests {
                 assert_eq!(a.laeq, 90.0);
                 assert_eq!(b.laeq, 91.5);
                 assert_eq!(first.time_ms, 0);
+                assert_eq!(first.seq, 0);
+                assert_eq!(second.seq, 1);
             }
             _ => panic!("expected decibel payloads"),
         }
@@ -111,6 +116,7 @@ mod tests {
             let event = MeasurementEvent {
                 payload: MeasurementPayload::Co2(Co2Sample { ppm: i as f32 }),
                 time_ms: 0,
+                seq: i as u32,
             };
             assert!(
                 queues.measurements.try_send(event).is_ok(),
@@ -123,6 +129,7 @@ mod tests {
         let rejected = MeasurementEvent {
             payload: MeasurementPayload::Co2(Co2Sample { ppm: -1.0 }),
             time_ms: 0,
+            seq: u32::MAX,
         };
         match queues.measurements.try_send(rejected) {
             Err(TrySendError::Full(returned)) => {
@@ -140,6 +147,8 @@ mod tests {
     fn status_and_measurement_queues_are_independent() {
         let queues = Queues::new();
         let mut status = StatusEvent {
+            time_ms: 0,
+            seq: 0,
             subsystem: heapless::String::new(),
             result: StatusResult::Started,
             message: heapless::String::new(),
@@ -149,7 +158,7 @@ mod tests {
 
         assert!(queues.status.try_send(status.clone()).is_ok());
         // The measurement queue is empty and independent of the status queue.
-        assert!(queues.measurements.try_send(decibel_event(88.0)).is_ok());
+        assert!(queues.measurements.try_send(decibel_event(0, 88.0)).is_ok());
         assert_eq!(
             block_on(queues.status.receive()).subsystem.as_str(),
             "lifecycle"
@@ -159,11 +168,15 @@ mod tests {
     #[test]
     fn producer_and_consumer_coordinate_through_the_channel() {
         let queues = Queues::new();
+        let mut seq = Sequencer::new();
         let report = block_on(join(
             async {
                 for i in 0..3 {
                     let laeq = 90.0 + i as f32;
-                    queues.measurements.send(decibel_event(laeq)).await;
+                    queues
+                        .measurements
+                        .send(decibel_event(seq.next_seq(), laeq))
+                        .await;
                 }
             },
             async {
@@ -172,6 +185,7 @@ mod tests {
                     let event = queues.measurements.receive().await;
                     if let MeasurementPayload::Decibel(sample) = event.payload {
                         assert!(sample.laeq >= 90.0);
+                        assert_eq!(event.seq, seen, "seq arrives in publish order");
                     } else {
                         panic!("unexpected payload kind");
                     }
