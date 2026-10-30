@@ -1,0 +1,1 @@
+{"payload":"co2","expected_error":"no_http_endpoint","why":"co2 exists only on the MQTT v2 one-topic-per-type design; POSTing it would invent an HTTP contract the server does not have"}

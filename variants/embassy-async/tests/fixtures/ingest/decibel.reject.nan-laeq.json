@@ -1,0 +1,1 @@
+{"payload":"decibel","field":"dba","value":"NaN","expected_error":"not_finite","why":"the Go decoder 400s a non-finite measurementValue (service.go); the dba body field comes from the laeq sample, so the encoder must refuse before a request is ever built"}

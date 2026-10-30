@@ -1,0 +1,1 @@
+{"payload":"weather","field":"precipitation","value":null,"expected_error":"incomplete_weather","why":"all six weather fields are required pointers in weather.go; a missing reading must never become a genuine measurement of zero"}
