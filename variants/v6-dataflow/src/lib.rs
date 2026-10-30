@@ -64,6 +64,8 @@ pub mod transports {
 
     #[cfg(feature = "transport-http")]
     pub mod http;
+    #[cfg(feature = "transport-http")]
+    pub mod http_json;
     #[cfg(feature = "transport-mqtt")]
     pub mod mqtt;
     #[cfg(feature = "transport-mtls")]

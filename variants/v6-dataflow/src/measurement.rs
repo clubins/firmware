@@ -77,6 +77,49 @@ pub const MEASUREMENT_TYPE_NAMES: [&str; MEASUREMENT_TYPES] = [
     "decibel", "pax", "weather", "co2", "pm25", "light", "status",
 ];
 
+/// The server's closed vocabulary for the status `result` field
+/// (`server-infra/ingest/service/status.go` `knownResults`, in file order).
+/// Adding a value there is a server deploy — the intended friction — so the
+/// firmware pins the same five strings; anything else the server rejects
+/// with 400, and the transports must never send it.
+pub const STATUS_RESULTS: [&str; STATUS_RESULT_COUNT] =
+    ["started", "stopped", "success", "degraded", "failed"];
+
+/// Number of server-known status results; sizes [`STATUS_RESULTS`].
+pub const STATUS_RESULT_COUNT: usize = 5;
+
+/// `result` index for a started lifecycle event ([`STATUS_RESULTS`] order).
+pub const RESULT_STARTED: u8 = 0;
+/// `result` index for a stopped lifecycle event.
+pub const RESULT_STOPPED: u8 = 1;
+/// `result` index for a healthy or successfully-completed report.
+pub const RESULT_SUCCESS: u8 = 2;
+/// `result` index for a degraded-but-up report.
+pub const RESULT_DEGRADED: u8 = 3;
+/// `result` index for a failure report (the reason goes in the message).
+pub const RESULT_FAILED: u8 = 4;
+
+/// The wire string for a status `result` index ([`Measurement::Status`]'s
+/// `result` field), or `None` when the index is outside the server's
+/// closed vocabulary.
+pub const fn result_name(result: u8) -> Option<&'static str> {
+    if (result as usize) < STATUS_RESULT_COUNT {
+        Some(STATUS_RESULTS[result as usize])
+    } else {
+        None
+    }
+}
+
+/// The closed-vocabulary index of a status `result` wire string, or `None`
+/// when the string is not one of the server's five values (the server
+/// answers 400 for those — `result` is a closed set, `subsystem` is open).
+pub fn result_index(name: &str) -> Option<u8> {
+    STATUS_RESULTS
+        .iter()
+        .position(|known| *known == name)
+        .map(|index| index as u8)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,6 +177,26 @@ mod tests {
         for m in all {
             assert_eq!(MEASUREMENT_TYPE_NAMES[m.type_index()], m.ingest_type());
         }
+    }
+
+    #[test]
+    fn status_result_vocabulary_matches_the_server() {
+        // The closed set and its order come from status.go's knownResults.
+        // Both directions are tested: the heartbeat renders `success`, and
+        // decode maps every server string back to its index.
+        let server_order = ["started", "stopped", "success", "degraded", "failed"];
+        for (index, name) in server_order.iter().enumerate() {
+            assert_eq!(result_name(index as u8), Some(*name));
+            assert_eq!(result_index(name), Some(index as u8));
+        }
+        // Outside the vocabulary: the strings the server answers 400 for
+        // (status_test.go TestStatusResultVocabularyIsEnforced).
+        for rejected in ["FAILED", "Failed", "fail", "error", "ok", ""] {
+            assert_eq!(result_index(rejected), None);
+        }
+        // Indices beyond the table have no name.
+        assert_eq!(result_name(STATUS_RESULT_COUNT as u8), None);
+        assert_eq!(result_name(255), None);
     }
 
     #[test]

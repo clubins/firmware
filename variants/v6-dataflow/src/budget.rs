@@ -25,11 +25,14 @@ mod tests {
 
     #[test]
     fn the_compiled_graph_fits_the_budget() {
-        assert!(
-            GRAPH_BYTES <= BUDGET_BYTES,
-            "graph {GRAPH_BYTES} B exceeds budget {BUDGET_BYTES} B"
-        );
-        assert!(HEADROOM_BYTES > 0);
+        // Compile-time facts: checked statically, not at test runtime.
+        const {
+            assert!(
+                GRAPH_BYTES <= BUDGET_BYTES,
+                "graph exceeds its memory budget"
+            );
+            assert!(HEADROOM_BYTES > 0);
+        }
     }
 
     /// The declared footprint covers every node the graph owns (the cfg
