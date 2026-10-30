@@ -329,10 +329,13 @@ mod tests {
         }
         let tasks = planned_tasks();
         let names: Vec<&str, MAX_TASKS> = tasks.iter().map(|t| t.name).collect();
-        // The plan follows the compiled feature set: the three I²C sensors
-        // slot in after the decibel source, ahead of transport and ops.
+        // The plan follows the compiled feature set: the sensor sources
+        // slot in ahead of transport and ops, in spawn order.
         let mut expected: Vec<&str, MAX_TASKS> = Vec::new();
         expected.push("decibel-sensor").unwrap();
+        if cfg!(feature = "sensor-pax") {
+            expected.push("pax-sensor").unwrap();
+        }
         if cfg!(feature = "sensor-bme280") {
             expected.push("bme280-sensor").unwrap();
         }
@@ -341,6 +344,12 @@ mod tests {
         }
         if cfg!(feature = "sensor-scd4x") {
             expected.push("scd4x-sensor").unwrap();
+        }
+        if cfg!(feature = "sensor-pms5003") {
+            expected.push("pms5003-sensor").unwrap();
+        }
+        if cfg!(feature = "sensor-bh1750") {
+            expected.push("bh1750-sensor").unwrap();
         }
         expected.push("http-transport").unwrap();
         expected.push("ops-status").unwrap();

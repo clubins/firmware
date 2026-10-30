@@ -7,7 +7,7 @@
 //! [`SensorDriver`](crate::sensor::SensorDriver) (init → calibrate → sample),
 //! converting wire bytes into the payload type its ingest topic speaks.
 //!
-//! Shared seams live here and in [`i2c`]:
+//! Shared seams live here, in [`i2c`], and in [`uart`]:
 //!
 //! - [`Wait`] — the driver-level time seam, the sibling of the framework's
 //!   `sensor::Sleep`. `Sleep` spaces the *task's* steps (the sampling
@@ -25,12 +25,16 @@
 pub mod bme280;
 #[cfg(feature = "driver-i2c")]
 pub mod i2c;
+#[cfg(feature = "sensor-pms5003")]
+pub mod pms5003;
 #[cfg(feature = "sensor-scd4x")]
 pub mod scd4x;
 #[cfg(any(feature = "sensor-sht4x", feature = "sensor-scd4x"))]
 pub mod sensirion;
 #[cfg(feature = "sensor-sht4x")]
 pub mod sht4x;
+#[cfg(feature = "driver-uart")]
+pub mod uart;
 
 /// Wait for `ms` milliseconds of hardware time (a conversion window, a
 /// measurement period). Implementations yield the executor while they wait —

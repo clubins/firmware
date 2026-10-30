@@ -32,7 +32,8 @@ use clubins_firmware_v3::session::Sequencer;
 #[cfg(any(
     feature = "sensor-bme280",
     feature = "sensor-sht4x",
-    feature = "sensor-scd4x"
+    feature = "sensor-scd4x",
+    feature = "sensor-pms5003"
 ))]
 use clubins_firmware_v3::sensors::Wait;
 
@@ -53,7 +54,8 @@ impl Sleep for EmbassyClock {
 #[cfg(any(
     feature = "sensor-bme280",
     feature = "sensor-sht4x",
-    feature = "sensor-scd4x"
+    feature = "sensor-scd4x",
+    feature = "sensor-pms5003"
 ))]
 impl Wait for EmbassyClock {
     async fn wait(&mut self, ms: u64) {
@@ -193,12 +195,21 @@ pub(super) async fn scd4x_sensor_task(
 }
 
 #[cfg(feature = "sensor-pms5003")]
+use clubins_firmware_v3::sensors::pms5003::Pms5003;
+
+#[cfg(feature = "sensor-pms5003")]
 #[embassy_executor::task]
-pub(super) async fn pms5003_sensor_task(mut measurements: MeasurementSender<'static>) {
-    let mut driver = SkeletonDriver::new(
-        "pms5003-sensor",
-        "UART driver arrives with the pms5003 task",
-    );
+pub(super) async fn pms5003_sensor_task(
+    mut measurements: MeasurementSender<'static>,
+    uart: esp_hal::peripherals::UART1<'static>,
+    rx: esp_hal::peripherals::GPIO18<'static>,
+    tx: esp_hal::peripherals::GPIO17<'static>,
+) {
+    // esp-hal's async UART is `!Send`, so the controller is built here,
+    // inside the spawned future, from the `Send` peripheral tokens. U1RXD
+    // is GPIO18 (the sensor's TX feeds it), U1TXD is GPIO17 (commands out
+    // to the sensor).
+    let mut driver = Pms5003::new(super::uart::SensorUart::new(uart, rx, tx), EmbassyClock);
     let mut clock = EmbassyClock;
     let params = SensorTaskParams::built_in();
     clubins_firmware_v3::sensor::run(&mut driver, &mut clock, &mut measurements, &params)

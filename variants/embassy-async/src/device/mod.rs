@@ -15,6 +15,9 @@ use clubins_firmware_v3::features::{self, TransportSelection};
 
 mod tasks;
 
+#[cfg(feature = "sensor-pms5003")]
+mod uart;
+
 #[cfg(any(
     feature = "sensor-bme280",
     feature = "sensor-sht4x",
@@ -44,7 +47,13 @@ async fn main(spawner: Spawner) {
     );
 
     static QUEUES: Queues = Queues::new();
-    spawn_enabled_tasks(&spawner, &QUEUES);
+    spawn_enabled_tasks(
+        &spawner,
+        &QUEUES,
+        peripherals.UART1,
+        peripherals.GPIO18,
+        peripherals.GPIO17,
+    );
 
     // The spawned tasks own all real work; this main task parks forever.
     loop {
@@ -54,9 +63,16 @@ async fn main(spawner: Spawner) {
 
 /// Spawn one task per compiled capability. With every flag off there is
 /// nothing to spawn — the flag matrix builds that combination — hence the
-/// `allow(unused_variables)`.
+/// `allow(unused_variables)`. Peripheral tokens move in because the UART
+/// front end is `!Send` and must be built inside the spawned future.
 #[allow(unused_variables)]
-fn spawn_enabled_tasks(spawner: &Spawner, queues: &'static Queues) {
+fn spawn_enabled_tasks(
+    spawner: &Spawner,
+    queues: &'static Queues,
+    uart1: esp_hal::peripherals::UART1<'static>,
+    rx: esp_hal::peripherals::GPIO18<'static>,
+    tx: esp_hal::peripherals::GPIO17<'static>,
+) {
     // Producers first: sensors and ops must be ready to publish before the
     // transport starts draining.
     #[cfg(feature = "sensor-decibel")]
@@ -88,7 +104,9 @@ fn spawn_enabled_tasks(spawner: &Spawner, queues: &'static Queues) {
         .unwrap(),
     );
     #[cfg(feature = "sensor-pms5003")]
-    spawner.spawn(tasks::pms5003_sensor_task(queues.measurements.sender()).unwrap());
+    spawner.spawn(
+        tasks::pms5003_sensor_task(queues.measurements.sender(), uart1, rx, tx).unwrap(),
+    );
     #[cfg(feature = "sensor-bh1750")]
     spawner.spawn(tasks::bh1750_sensor_task(queues.measurements.sender()).unwrap());
 
