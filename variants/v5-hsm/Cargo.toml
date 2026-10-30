@@ -7,6 +7,12 @@ publish = false
 [lib]
 name = "firmware_v5_hsm"
 
+# Contract conformance needs the wire codec; skip it in feature-matrix
+# combinations that leave transport-http off.
+[[test]]
+name = "ingest_conformance"
+required-features = ["transport-http"]
+
 # Capability flags — spec §Feature Matrix (docs/spec/…build-spec.html).
 # Every public leaf is independent; any combination must compile. The five
 # plumbing flags (driver-i2c, driver-uart, driver-gpio, net-wifi, proto-v2)
