@@ -178,7 +178,9 @@ fn req_positive_u64(params: &Params, field: &'static str) -> Result<u64, ParamIs
     })
 }
 
-/// Required `f64` (integers widen; NaN/inf rejected).
+/// Required `f64` (integers widen; NaN/inf rejected). Only the decibel
+/// chain's tunable validation consumes it.
+#[cfg(feature = "sensor-decibel")]
 fn req_f64(params: &Params, field: &'static str) -> Result<f64, ParamIssue> {
     params.f64_param(field).map_err(|e| match e {
         ParamError::Missing => ParamIssue::Missing { field },
@@ -193,7 +195,9 @@ fn req_f64(params: &Params, field: &'static str) -> Result<f64, ParamIssue> {
     })
 }
 
-/// Optional `f64` (NaN/inf rejected when present).
+/// Optional `f64` (NaN/inf rejected when present). Only the decibel
+/// sink's tunables consume it.
+#[cfg(feature = "sensor-decibel")]
 fn opt_f64(params: &Params, field: &'static str) -> Result<(), ParamIssue> {
     if params.get(field).is_some() {
         req_f64(params, field)?;
@@ -201,8 +205,10 @@ fn opt_f64(params: &Params, field: &'static str) -> Result<(), ParamIssue> {
     Ok(())
 }
 
-/// Required measurement type by name.
-fn req_measurement(
+/// Required measurement type by name. Shared with the runtime's sink
+/// builder, which re-reads the validated `type` parameter.
+#[cfg(any(feature = "transport-http", feature = "transport-mqtt"))]
+pub(crate) fn req_measurement(
     params: &Params,
     field: &'static str,
 ) -> Result<MeasurementType, ParamIssue> {
@@ -419,6 +425,19 @@ impl Kind for SinkKind {
                         }
                     }
                 }
+                Ok(())
+            }
+            // All-off: no sink kind exists, so no parameters can reach a
+            // schema. The arm keeps the match exhaustive and the function
+            // signature's parameter used.
+            #[cfg(not(any(
+                feature = "transport-http",
+                feature = "transport-mqtt",
+                feature = "ops-status",
+                feature = "logging-defmt"
+            )))]
+            _ => {
+                let _ = params;
                 Ok(())
             }
         }

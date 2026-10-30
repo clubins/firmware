@@ -102,6 +102,8 @@ impl core::fmt::Display for GraphError {
 }
 
 /// One validated pipeline instance: kinds resolved, parameters checked.
+/// Scheduling state (the next due beat) lives in the runtime's
+/// [`crate::runtime::PipelineRun`], which is built from this.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Instance {
     pub name: String,
@@ -113,13 +115,24 @@ pub struct Instance {
     pub cadence_ms: u64,
     /// Upstream pipeline name for `pipe` sources.
     pub upstream: Option<String>,
-    /// Scheduler bookkeeping: the next due beat in ms. Starts at 0; the
-    /// engine owns advancing it (see `engine::Engine::tick`).
-    pub(crate) next_due: u64,
 }
 
 /// Validate a whole declaration set and return instances in topological
 /// (dependency) order — the order the interpreter must instantiate them in.
+///
+/// With no sink kind compiled in, no pipeline declaration can validate and
+/// `Instance` (holding a `SinkKind`) is uninhabited; rustc then proves the
+/// construction code below dead and warns about it — hence the targeted
+/// allow on exactly that build.
+#[cfg_attr(
+    not(any(
+        feature = "transport-http",
+        feature = "transport-mqtt",
+        feature = "ops-status",
+        feature = "logging-defmt"
+    )),
+    allow(unreachable_code)
+)]
 pub fn validate(pipelines: &Pipelines) -> Result<Vec<Instance>, GraphError> {
     check_unique_names(pipelines)?;
 
@@ -174,7 +187,25 @@ fn validate_pipeline(decl: &crate::decl::PipelineDecl) -> Result<Instance, Graph
                 .str_param("pipeline")
                 .expect("Pipe validate requires 'pipeline'"),
         ),
-        _ => None,
+        // Every other source kind is capability-gated; listing them per
+        // world (instead of a wildcard) keeps the all-off build — where
+        // `pipe` is the only kind — free of unreachable-pattern warnings.
+        #[cfg(feature = "sensor-decibel")]
+        registry::SourceKind::Decibel => None,
+        #[cfg(feature = "sensor-pax")]
+        registry::SourceKind::Pir => None,
+        #[cfg(feature = "sensor-bme280")]
+        registry::SourceKind::Bme280 => None,
+        #[cfg(feature = "sensor-sht4x")]
+        registry::SourceKind::Sht4x => None,
+        #[cfg(feature = "sensor-scd4x")]
+        registry::SourceKind::Scd4x => None,
+        #[cfg(feature = "sensor-pms5003")]
+        registry::SourceKind::Pms5003 => None,
+        #[cfg(feature = "sensor-bh1750")]
+        registry::SourceKind::Bh1750 => None,
+        #[cfg(feature = "ops-status")]
+        registry::SourceKind::Clock => None,
     };
 
     // Stages: resolve and validate in declared order.
@@ -207,7 +238,6 @@ fn validate_pipeline(decl: &crate::decl::PipelineDecl) -> Result<Instance, Graph
         sink: sink_kind,
         cadence_ms,
         upstream,
-        next_due: 0,
     })
 }
 

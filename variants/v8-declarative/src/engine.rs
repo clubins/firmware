@@ -1,22 +1,34 @@
-//! The boot-time interpreter: declarations → validated instances → ticks.
+//! The boot-time interpreter: declarations → validated instances → runnable
+//! pipelines → ticks.
 //!
 //! This is V8's runtime core. At boot, [`Engine::instantiate`] parses a
-//! pipelines document, validates it through [`crate::graph`], and holds the
-//! resulting instances in topological (dependency) order. From then on the
-//! device loop only calls [`Engine::tick`]: it returns the pipelines whose
-//! cadence came due, in schedule order. Real stage behaviour arrives with
-//! the driver PRs — the scaffold's job is to prove the schedule, the
-//! gating, and the failure modes, not to fake DSP.
+//! pipelines document, validates it through [`crate::graph`], builds each
+//! instance's execution state ([`crate::runtime`]), and wires the `pipe`
+//! edges between pipelines. From then on the device loop only calls
+//! [`Engine::tick`]: it executes the pipelines whose cadence came due —
+//! each run pulls its upstream's finished stream, produces its own samples,
+//! pushes them through the stage chain, and delivers to its sink — and
+//! returns the runs that fired, in schedule order.
+//!
+//! Real hardware behaviour arrives with the driver PRs: hardware sources
+//! are `Pending` (their pipelines idle), capability stages are identity
+//! slots, and sinks count deliveries. The mechanism — graph validation,
+//! flag-gated instantiation, stream wiring, cadence execution — is complete
+//! and host-tested; the drivers slot into it without touching the engine.
 
 use alloc::vec::Vec;
 
 use crate::decl::Pipelines;
-use crate::graph::{self, GraphError, Instance};
+use crate::graph::{self, GraphError};
+use crate::measurement::Measurement;
+use crate::runtime::{PipelineRun, SourceExec};
 
 /// The instantiated pipeline engine.
 #[derive(Clone, Debug)]
 pub struct Engine {
-    instances: Vec<Instance>,
+    /// Runs in topological (dependency) order: an upstream's index is
+    /// always smaller than its consumers'.
+    runs: Vec<PipelineRun>,
 }
 
 impl Engine {
@@ -25,51 +37,171 @@ impl Engine {
     /// references an undeclared pipeline, contains a cycle, or violates the
     /// cadence rules fails here — at boot, loudly.
     pub fn instantiate(pipelines: &Pipelines) -> Result<Self, GraphError> {
-        Ok(Self {
-            instances: graph::validate(pipelines)?,
-        })
+        let validated = graph::validate(pipelines)?;
+
+        // Execution state per instance; the declaration supplies the
+        // parameters the validator already checked (same order — validate
+        // mirrors the declaration into the instance).
+        let mut runs: Vec<PipelineRun> = validated
+            .iter()
+            .map(|inst| {
+                let decl = pipelines
+                    .pipelines
+                    .iter()
+                    .find(|d| d.name == inst.name)
+                    .expect("validate returns the declared pipelines");
+                PipelineRun::build(inst, decl)
+            })
+            .collect();
+
+        // Resolve `pipe` sources to run indexes. Topological order
+        // guarantees the upstream sorts first; assert it so a future change
+        // to the ordering cannot silently break the split_at_mut below.
+        for (i, inst) in validated.iter().enumerate() {
+            if let Some(upstream) = &inst.upstream {
+                let idx = runs
+                    .iter()
+                    .position(|r| r.name.as_str() == upstream.as_str())
+                    .expect("references were validated");
+                debug_assert!(idx < i, "topo order must place upstreams first");
+                runs[i].upstream = Some(idx);
+            }
+        }
+
+        Ok(Self { runs })
     }
 
     /// Number of compiled pipelines in dependency order.
     pub fn len(&self) -> usize {
-        self.instances.len()
+        self.runs.len()
     }
 
     /// Whether the engine runs no pipelines (an empty document is a parse
     /// error, so a valid engine always has at least one — but the accessor
     /// keeps the invariant explicit for tests).
     pub fn is_empty(&self) -> bool {
-        self.instances.is_empty()
+        self.runs.is_empty()
     }
 
     /// The schedule in dependency order: `(name, cadence_ms)` pairs.
     pub fn schedule(&self) -> Vec<(&str, u64)> {
-        self.instances
+        self.runs
             .iter()
             .map(|i| (i.name.as_str(), i.cadence_ms))
             .collect()
     }
 
-    /// Advance the scheduler to `now_ms`. Returns the pipelines due at or
-    /// before `now`, in dependency order; each due pipeline's next beat is
-    /// rescheduled one or more cadence steps past `now` on its original
-    /// grid, so slow consumers catch up without bursting.
+    /// Deliveries a pipeline's sink accepted, by name.
+    pub fn delivered(&self, name: &str) -> Option<u64> {
+        self.runs
+            .iter()
+            .find(|r| r.name.as_str() == name)
+            .map(|r| r.sink.delivered())
+    }
+
+    /// Measurements a pipeline's sink dropped (another type than declared),
+    /// by name.
+    pub fn dropped(&self, name: &str) -> Option<u64> {
+        self.runs
+            .iter()
+            .find(|r| r.name.as_str() == name)
+            .map(|r| r.sink.dropped())
+    }
+
+    /// Stream samples a pipeline dropped at its outbox cap (its consumers
+    /// were too slow), by name.
+    pub fn outbox_dropped(&self, name: &str) -> Option<u64> {
+        self.runs
+            .iter()
+            .find(|r| r.name.as_str() == name)
+            .map(|r| r.outbox_dropped)
+    }
+
+    /// The last measurement a pipeline's sink accepted, by name.
+    pub fn last_delivered(&self, name: &str) -> Option<&Measurement> {
+        self.runs
+            .iter()
+            .find(|r| r.name.as_str() == name)
+            .and_then(|r| r.sink.last())
+    }
+
+    /// Advance the scheduler to `now_ms` and execute what came due. Returns
+    /// the pipelines that fired, in dependency order; each due pipeline's
+    /// next beat is rescheduled one or more cadence steps past `now` on its
+    /// original grid, so slow consumers catch up without bursting.
     pub fn tick(&mut self, now_ms: u64) -> Vec<&str> {
-        let mut due = Vec::new();
-        for inst in &mut self.instances {
-            if inst.next_due <= now_ms {
-                due.push(inst.name.as_str());
-                let missed = (now_ms - inst.next_due) / inst.cadence_ms + 1;
-                inst.next_due += missed * inst.cadence_ms;
+        // First pass: collect due indexes and advance their grids (index
+        // bookkeeping keeps the borrow checker happy and the order stable).
+        let mut due: Vec<usize> = Vec::new();
+        for (i, run) in self.runs.iter_mut().enumerate() {
+            if run.next_due <= now_ms {
+                due.push(i);
+                let missed = (now_ms - run.next_due) / run.cadence_ms + 1;
+                run.next_due += missed * run.cadence_ms;
             }
         }
-        due
+        // Second pass: execute in dependency order, so a `pipe` consumer
+        // sees everything its upstream finished up to now.
+        for &i in &due {
+            self.execute(i);
+        }
+        due.iter().map(|&i| self.runs[i].name.as_str()).collect()
+    }
+
+    /// Execute one pipeline run: gather inputs (the upstream's finished
+    /// stream, then this beat's own samples), run the stage chain, deliver
+    /// to the sink, and append what finished to this pipeline's stream.
+    fn execute(&mut self, i: usize) {
+        // Topological order puts the upstream first, so the split is safe.
+        let (earlier, later) = self.runs.split_at_mut(i);
+        let run = &mut later[0];
+
+        let mut inputs: Vec<Measurement> = Vec::new();
+        if let Some(up) = run.upstream {
+            // Drain whatever the upstream finished since our last beat —
+            // a slow consumer catches up on the whole backlog, one sample
+            // at a time through its own chain.
+            inputs.extend(core::mem::take(&mut earlier[up].outbox));
+        }
+        match &mut run.source {
+            // The upstream's stream is this run's input; nothing extra.
+            SourceExec::Pipe { .. } => {}
+            // Hardware sources have no driver yet: they produce nothing.
+            SourceExec::Pending => {}
+            #[cfg(feature = "ops-status")]
+            SourceExec::Clock { beat } => {
+                *beat += 1;
+                inputs.push(crate::runtime::clock_heartbeat(*beat));
+            }
+        }
+
+        for sample in inputs {
+            // The stage chain: a stage returning None ends that sample's
+            // walk (window not yet full, or throttled out).
+            let mut current = Some(sample);
+            for stage in &mut run.stages {
+                match current.take() {
+                    Some(m) => current = stage.apply(m),
+                    None => break,
+                }
+            }
+            if let Some(m) = current {
+                // Sinks are terminal consumers of the stream; the outbox is
+                // what `pipe` consumers tap — capped, drops counted.
+                run.sink.deliver(&m);
+                run.outbox.push(m);
+                if run.outbox.len() > crate::runtime::OUTBOX_CAP {
+                    run.outbox.remove(0);
+                    run.outbox_dropped += 1;
+                }
+            }
+        }
     }
 }
 
 #[cfg(test)]
-// Tests are gated per the kinds they name; the trio-gated ones mirror the
-// default feature set (see the note in graph::tests).
+// Kind coverage follows the same per-test gating note as graph::tests:
+// tests naming clock/http kinds are gated to the default feature set.
 mod tests {
     use super::*;
 
@@ -87,24 +219,31 @@ mod tests {
     ))]
     fn instantiates_the_default_document_in_dependency_order() {
         // The committed config instantiates under the default feature set
-        // (sensor-decibel, transport-http, ops-status): a decibel chain, its
-        // hourly pipe-fed rollup, and the status heartbeat.
+        // (sensor-decibel, transport-http, ops-status): a decibel chain, the
+        // clock-fed status heartbeat, and the decibel chain's hourly pipe-fed
+        // rollup.
         let doc = Pipelines::parse(include_str!("../config/pipelines.toml"))
             .expect("committed pipelines.toml parses");
         let engine =
             Engine::instantiate(&doc).expect("committed pipelines.toml is valid");
         let schedule = engine.schedule();
-        assert!(engine.len() >= 2);
-        // Every pipe-sourced pipeline comes after its upstream.
-        for (pos, (name, _)) in schedule.iter().enumerate() {
-            if *name == "decibel-hourly" {
-                let upstream = schedule[..pos].iter().any(|(n, _)| *n == "decibel-leq");
-                assert!(
-                    upstream,
-                    "decibel-leq must be scheduled before decibel-hourly"
-                );
-            }
-        }
+        assert!(engine.len() >= 3);
+        let leq_pos = schedule
+            .iter()
+            .position(|(n, _)| *n == "decibel-leq")
+            .expect("decibel-leq in the default document");
+        let hourly_pos = schedule
+            .iter()
+            .position(|(n, _)| *n == "decibel-hourly")
+            .expect("decibel-hourly in the default document");
+        assert!(
+            leq_pos < hourly_pos,
+            "an upstream must precede its pipe consumers"
+        );
+        // Freshly built runs: nothing executed yet, nothing dropped.
+        assert_eq!(engine.delivered("status"), Some(0));
+        assert_eq!(engine.delivered("decibel-leq"), Some(0));
+        assert_eq!(engine.outbox_dropped("decibel-leq"), Some(0));
     }
 
     #[test]
@@ -292,5 +431,198 @@ mod tests {
             Engine::instantiate(&doc),
             Err(GraphError::Cycle(_))
         ));
+    }
+
+    // ---- execution (runtime) behaviour, default feature world ----
+
+    #[test]
+    #[cfg(all(feature = "ops-status", feature = "transport-http"))]
+    fn clock_pipeline_delivers_heartbeats_and_counts_them() {
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "hb"
+            source = { kind = "clock", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "status-heartbeat"
+            "#,
+        );
+        assert_eq!(engine.tick(0), ["hb"]); // beat 1
+        assert_eq!(engine.tick(999), Vec::<&str>::new());
+        assert_eq!(engine.tick(1000), ["hb"]); // beat 2
+        assert_eq!(engine.delivered("hb"), Some(2));
+        assert_eq!(engine.dropped("hb"), Some(0));
+        match engine.last_delivered("hb") {
+            Some(Measurement::Status(report)) => {
+                assert_eq!(report.message.as_deref(), Some("beat 2"))
+            }
+            other => panic!("expected the second heartbeat, got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[cfg(all(feature = "ops-status", feature = "transport-http"))]
+    fn pipe_consumer_drains_its_upstreams_stream() {
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "producer"
+            source = { kind = "clock", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "status-heartbeat"
+
+            [[pipeline]]
+            name = "consumer"
+            source = { kind = "pipe", pipeline = "producer", cadence_ms = 2000 }
+            [pipeline.sink]
+            kind = "status-heartbeat"
+            "#,
+        );
+        // The consumer accepts status (heartbeat) — `status` is deliberately
+        // not a measurement type in the registry, so `http-ingest` cannot
+        // declare it and the retained status sink is the status destination.
+        // Beat 0: producer emits "beat 1", consumer drains it in the same
+        // tick (dependency order), so both sinks see one delivery.
+        assert_eq!(engine.tick(0), ["producer", "consumer"]);
+        assert_eq!(engine.delivered("producer"), Some(1));
+        assert_eq!(engine.delivered("consumer"), Some(1));
+        // Producer fires alone at 1000 ms: "beat 2" waits in its stream.
+        assert_eq!(engine.tick(1000), ["producer"]);
+        assert_eq!(engine.delivered("producer"), Some(2));
+        assert_eq!(engine.delivered("consumer"), Some(1));
+        // Consumer's beat: the backlog ("beat 2" from 1000 ms plus "beat 3"
+        // just produced) drains in one run, in order.
+        assert_eq!(engine.tick(2000), ["producer", "consumer"]);
+        assert_eq!(engine.delivered("consumer"), Some(3));
+        assert_eq!(engine.outbox_dropped("producer"), Some(0));
+        match engine.last_delivered("consumer") {
+            Some(Measurement::Status(report)) => {
+                assert_eq!(report.message.as_deref(), Some("beat 3"))
+            }
+            other => panic!("expected the drained heartbeat, got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[cfg(all(feature = "ops-status", feature = "transport-http"))]
+    fn aggregate_stage_gates_until_the_window_is_full() {
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "agg"
+            source = { kind = "clock", cadence_ms = 1000 }
+            [[pipeline.stages]]
+            kind = "aggregate"
+            window_s = 3
+            [pipeline.sink]
+            kind = "status-heartbeat"
+            "#,
+        );
+        // window_s 3 at a 1000 ms cadence → one emission per 3 beats: the
+        // stage holds the window's latest sample and releases it at the
+        // boundary.
+        assert_eq!(engine.tick(0), ["agg"]); // 1/3
+        assert_eq!(engine.tick(1000), ["agg"]); // 2/3
+        assert_eq!(engine.delivered("agg"), Some(0));
+        assert_eq!(engine.tick(2000), ["agg"]); // 3/3 → one sample out
+        assert_eq!(engine.delivered("agg"), Some(1));
+        assert_eq!(engine.tick(3000), ["agg"]); // 1/3
+        assert_eq!(engine.delivered("agg"), Some(1));
+        assert_eq!(engine.tick(4000), ["agg"]); // 2/3
+        assert_eq!(engine.tick(5000), ["agg"]); // 3/3 → second out
+        assert_eq!(engine.delivered("agg"), Some(2));
+    }
+
+    #[test]
+    #[cfg(all(feature = "ops-status", feature = "transport-http"))]
+    fn throttle_stage_passes_one_sample_per_interval() {
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "thr"
+            source = { kind = "clock", cadence_ms = 1000 }
+            [[pipeline.stages]]
+            kind = "throttle"
+            every = 10
+            [pipeline.sink]
+            kind = "status-heartbeat"
+            "#,
+        );
+        // The throttle counts samples, not wall time: the first passes, the
+        // next nine are suppressed, then the eleventh passes.
+        for ms in (0..=9_000).step_by(1000) {
+            assert_eq!(engine.tick(ms), ["thr"]);
+        }
+        assert_eq!(engine.delivered("thr"), Some(1));
+        assert_eq!(engine.tick(10_000), ["thr"]); // sample 11 passes
+        assert_eq!(engine.delivered("thr"), Some(2));
+        assert_eq!(engine.tick(11_000), ["thr"]); // suppressed again
+        assert_eq!(engine.delivered("thr"), Some(2));
+    }
+
+    #[test]
+    #[cfg(all(feature = "ops-status", feature = "transport-http"))]
+    fn sink_type_guard_drops_other_types_and_counts_them() {
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "guarded"
+            source = { kind = "clock", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "weather"
+            "#,
+        );
+        // Heartbeats are status measurements; a weather-declared sink must
+        // never accept one — and must never do so silently.
+        assert_eq!(engine.tick(0), ["guarded"]);
+        assert_eq!(engine.tick(1000), ["guarded"]);
+        assert_eq!(engine.delivered("guarded"), Some(0));
+        assert_eq!(engine.dropped("guarded"), Some(2));
+        assert!(engine.last_delivered("guarded").is_none());
+    }
+
+    #[test]
+    #[cfg(all(feature = "ops-status", feature = "transport-http"))]
+    fn outbox_cap_drops_the_oldest_samples_and_counts_them() {
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "solo"
+            source = { kind = "clock", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "status-heartbeat"
+            "#,
+        );
+        // 71 beats with no pipe consumer: the newest 64 stay buffered, the
+        // oldest 7 are dropped — counted, never silent.
+        for ms in (0..=70_000).step_by(1000) {
+            engine.tick(ms);
+        }
+        assert_eq!(engine.outbox_dropped("solo"), Some(7));
+    }
+
+    #[test]
+    #[cfg(all(feature = "sensor-decibel", feature = "transport-http"))]
+    fn pending_hardware_source_produces_nothing() {
+        // The decibel driver PR has not landed: the pipeline schedules and
+        // executes, but its source is Pending — no samples, no deliveries,
+        // no invented data.
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "db"
+            source = { kind = "decibel", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "decibel"
+            "#,
+        );
+        for ms in (0..=5000).step_by(1000) {
+            assert_eq!(engine.tick(ms), ["db"]);
+        }
+        assert_eq!(engine.delivered("db"), Some(0));
+        assert_eq!(engine.dropped("db"), Some(0));
+        assert!(engine.last_delivered("db").is_none());
     }
 }

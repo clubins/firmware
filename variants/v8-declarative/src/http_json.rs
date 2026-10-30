@@ -699,7 +699,12 @@ pub fn encode(event: &IngestEvent) -> Result<Encoded, EncodeError> {
 /// the same f32, so every f32 round-trips through the server's domain.
 fn push_f32_json(out: &mut String, value: f32) {
     let abs = value.abs();
-    if abs != 0.0 && (abs < 1e-6 || abs >= 1e21) {
+    // Exponent form iff non-zero and outside 1e-6…1e21, written as an
+    // explicit zero guard plus negated range: clippy's bare
+    // `!(1e-6..1e21).contains(&abs)` would also flip zero into exponent
+    // form (0.0 < 1e-6), changing the encoding from "0" to "0e0".
+    let use_exponent = abs != 0.0 && !(1e-6..1e21).contains(&abs);
+    if use_exponent {
         let _ = write!(out, "{:e}", value as f64);
     } else {
         let _ = write!(out, "{value}");
