@@ -1,0 +1,47 @@
+//! PMS5003 driver implementation — the scaffold of the driver-pms5003
+//! crate: lifecycle and metadata now, the UART front-end with the bus
+//! task.
+
+#include "pms5003_driver.h"
+
+const clubins_sensor_meta_t clubins_pms5003_meta = {
+    .name = "PMS5003",
+    .ingest_type = "pms5003",
+    .unit = "µg/m³",
+};
+
+void clubins_pms5003_driver_new(clubins_pms5003_driver_t *driver)
+{
+    if (driver == NULL) {
+        return;
+    }
+    driver->initialised = false;
+}
+
+static clubins_sensor_status_t pms5003_init(clubins_sensor_t *self)
+{
+    clubins_pms5003_driver_t *driver = self->ctx;
+    if (driver->initialised) {
+        return CLUBINS_SENSOR_ERR_ALREADY_INITIALISED;
+    }
+    driver->initialised = true;
+    return CLUBINS_SENSOR_OK;
+}
+
+static bool pms5003_sample(clubins_sensor_t *self, clubins_measurement_t *out)
+{
+    (void)out;
+    const clubins_pms5003_driver_t *driver = self->ctx;
+    if (!driver->initialised) {
+        return false;
+    }
+    /* No readings yet: the hardware front-end is the bus task's deliverable
+     * and samples nothing until it lands. */
+    return false;
+}
+
+const clubins_sensor_ops_t clubins_pms5003_sensor_ops = {
+    .meta = &clubins_pms5003_meta,
+    .init = pms5003_init,
+    .sample = pms5003_sample,
+};

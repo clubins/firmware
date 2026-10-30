@@ -1,0 +1,154 @@
+# Clubins capability flags — the C port of V1's Cargo feature matrix
+# (docs/spec §Flag Matrix). Every public leaf compiles its stub module in or
+# out; internal plumbing flags keep dependency graphs honest and are selected
+# by the leaves, never set directly. Defaults are all-off on purpose, exactly
+# V1's `default = []` — the default build compiles no capabilities, and the
+# all-on anchor lives in sdkconfig.defaults.all-features.
+
+menu "Clubins capability flags"
+
+    # --- Sensors: one leaf per driver family -----------------------------
+
+    config CLUBINS_CAP_SENSOR_DECIBEL
+        bool "Sensor: decibel (SPK0641HT4H-1 PDM mic, I2S0 @ 48 kHz)"
+        help
+            SPK0641HT4H-1 PDM microphone front-end with the A/C-weighted
+            decibel DSP from the source repo's decibel.md design note.
+            Emits ingest type `decibel` (dba, dbc), with per-unit
+            calibration from NVS.
+
+    config CLUBINS_CAP_SENSOR_PAX
+        bool "Sensor: pax occupancy (PIR front-end)"
+        select CLUBINS_CAP_DRIVER_GPIO
+        help
+            PIR occupancy front-end on a config-chosen GPIO pin. Reports
+            PIR motion detections honestly — not a head count. Emits
+            ingest type `pax` (occupancy_count).
+
+    config CLUBINS_CAP_SENSOR_BME280
+        bool "Sensor: BME280 (temperature + humidity + pressure)"
+        select CLUBINS_CAP_DRIVER_I2C
+        help
+            Emits ingest type `weather` (temperature, humidity, pressure).
+            Precipitation/rain/wind stay unset — those are virtual
+            Open-Meteo fields on the server.
+
+    config CLUBINS_CAP_SENSOR_SHT4X
+        bool "Sensor: SHT4x (temperature + humidity)"
+        select CLUBINS_CAP_DRIVER_I2C
+        help
+            Alternative to BME280's temp/hum; both compiled in means
+            config picks per-device. Emits ingest type `weather`.
+
+    config CLUBINS_CAP_SENSOR_SCD4X
+        bool "Sensor: SCD4x (CO2)"
+        select CLUBINS_CAP_DRIVER_I2C
+        help
+            Emits ingest type `co2` — a new measurement type following the
+            one-topic-per-type rule; no server receiver yet (spec §Sensor
+            Expansion).
+
+    config CLUBINS_CAP_SENSOR_PMS5003
+        bool "Sensor: PMS5003 (PM2.5 particulates)"
+        select CLUBINS_CAP_DRIVER_UART
+        help
+            Emits ingest type `pm25` — a new measurement type, following
+            the one-topic-per-type rule.
+
+    config CLUBINS_CAP_SENSOR_BH1750
+        bool "Sensor: BH1750 (ambient light)"
+        select CLUBINS_CAP_DRIVER_I2C
+        help
+            Emits ingest type `light` — a new measurement type, following
+            the one-topic-per-type rule.
+
+    # --- Transports: config selects the active one at runtime ------------
+
+    config CLUBINS_CAP_TRANSPORT_HTTP
+        bool "Transport: HTTP-JSON ingest (working server path)"
+        select CLUBINS_CAP_NET_WIFI
+        help
+            Wi-Fi STA plus HTTPS POST of one JSON object per measurement
+            to <endpoint>/v1/sensors/<type>, field-exact against the Go
+            ingest structs. The API key comes from NVS, never from the
+            committed config.
+
+    config CLUBINS_CAP_TRANSPORT_MQTT
+        bool "Transport: MQTT v2 protobuf (api/mqtt contract)"
+        select CLUBINS_CAP_NET_WIFI
+        select CLUBINS_CAP_PROTO_V2
+        help
+            MQTT v2 protobuf client: topic v2/sensors/<uuid>/data/<type>
+            at QoS 1, retained status on connect, boot_id from hardware
+            RNG, per-topic seq from 0, LWT `Died`.
+
+    config CLUBINS_CAP_TRANSPORT_MTLS
+        bool "Transport: mTLS client certs from NVS (CN = sensor UUID)"
+        depends on CLUBINS_CAP_TRANSPORT_MQTT
+        help
+            Client certificate and key from NVS; the certificate CN is
+            the sensor UUID, per api/mqtt/topics.md.
+
+    # --- Ops --------------------------------------------------------------
+
+    config CLUBINS_CAP_OTA
+        bool "Ops: OTA updates (esp-ota partition scheme)"
+        help
+            Update handling via the esp-ota partition scheme: verify,
+            apply, roll back.
+
+    config CLUBINS_CAP_PROVISIONING
+        bool "Ops: BLE Wi-Fi credential provisioning"
+        select CLUBINS_CAP_NET_WIFI
+        help
+            BLE-based provisioning of Wi-Fi credentials into NVS.
+
+    config CLUBINS_CAP_DEEP_SLEEP
+        bool "Ops: deep-sleep duty cycling"
+        help
+            Duty-cycled sampling between deep sleeps — trades measurement
+            continuity for power.
+
+    config CLUBINS_CAP_LOGGING_DEFMT
+        bool "Ops: defmt-style logging transport"
+        help
+            Structured logging transport (defmt-style over UART/USB-JTAG)
+            behind a flag; esp_log stays the baseline.
+
+    config CLUBINS_CAP_OPS_STATUS
+        bool "Ops: status heartbeat + boot lifecycle"
+        help
+            Status heartbeats are required by both ingest contracts
+            (HTTP `status` payloads, MQTT v2 retained status), so this
+            ships behind a flag; both anchor builds turn it on.
+
+    # --- Internal plumbing (hidden; selected by capabilities) ------------
+
+    config CLUBINS_CAP_DRIVER_I2C
+        bool
+        help
+            I2C bus front-end. Internal plumbing: selected by the sensor
+            leaves that need it, not part of the public matrix.
+
+    config CLUBINS_CAP_DRIVER_UART
+        bool
+        help
+            UART bus front-end. Internal plumbing.
+
+    config CLUBINS_CAP_DRIVER_GPIO
+        bool
+        help
+            GPIO front-end. Internal plumbing.
+
+    config CLUBINS_CAP_NET_WIFI
+        bool
+        help
+            Wi-Fi stack bring-up. Internal plumbing.
+
+    config CLUBINS_CAP_PROTO_V2
+        bool
+        help
+            Protobuf v2 encoders (nanopb when real encoders land).
+            Internal plumbing.
+
+endmenu

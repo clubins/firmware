@@ -1,0 +1,7 @@
+# Per-component Kconfig for the shared core component.
+#
+# The core carries no compile-time tunables of its own: capability
+# selection lives in the project-level flags (Kconfig.projbuild), and
+# runtime settings will flow through the config pool (default.toml + NVS,
+# the config task's deliverable) — not through Kconfig. This file exists to
+# hold the component's own symbols when the core grows a real one.
