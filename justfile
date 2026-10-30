@@ -12,13 +12,18 @@ default:
 # Everything host CI runs: format, clippy -D warnings, host tests, Xtensa check.
 check: fmt lint test xtensa-check
 
-# Formatting gate (rustfmt edition 2024, max_width 90 — see rustfmt.toml).
+# cargo dispatches external subcommands (fmt, clippy) from $CARGO_HOME/bin
+# before its own directory — a host rustup shim there (present on CI runner
+# images) honors rust-toolchain.toml and dies on our custom fork toolchain.
+# Point those recipes at a clean CARGO_HOME so the pinned toolchain's binaries
+# win. Built-in subcommands (build/check/test) never dispatch externally and
+# keep the shared registry cache.
 fmt:
-    cargo fmt --all --check
+    CARGO_HOME="$(mktemp -d)" cargo fmt --all --check
 
 # Lint gate.
 lint:
-    cargo clippy --locked -- -D warnings
+    CARGO_HOME="$(mktemp -d)" cargo clippy --locked -- -D warnings
 
 # Host tests for the pure-logic modules.
 test:

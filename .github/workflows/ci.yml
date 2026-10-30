@@ -41,9 +41,7 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
 
       - name: Host check
-        run: |
-          nix-shell --pure --run 'echo "=== A: direct cargo-fmt ==="; cargo-fmt -v --all --check; echo A_RC=$?; echo "=== B: RUSTFMT pinned ==="; RUSTFMT="$(command -v rustfmt)" cargo fmt -v --all --check; echo B_RC=$?; echo "=== C: clippy probe ==="; cargo clippy --all-features -- -D warnings; echo C_RC=$?; echo "=== D: runner rustup ==="; ls ~/.rustup/toolchains 2>&1; cat ~/.rustup/settings.toml 2>&1'
-          echo STEP_RC=$?
+        run: nix-shell --pure --run 'just check'
 
   flag-matrix:
     name: Flag matrix (all-off, each flag alone, all-on)
