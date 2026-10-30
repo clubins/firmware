@@ -13,6 +13,13 @@
 //! node (plus the engine that feeds it) to the struct — the compile-time
 //! footprint story checked by `budget.rs`.
 
+#[cfg(any(
+    feature = "sensor-bme280",
+    feature = "sensor-sht4x",
+    feature = "sensor-scd4x",
+    feature = "sensor-bh1750"
+))]
+use crate::bus;
 #[cfg(any(feature = "sensor-decibel", feature = "sensor-pms5003"))]
 use crate::dma::SimulatedDma;
 #[cfg(feature = "sensor-pax")]
@@ -80,6 +87,17 @@ pub struct Graph {
     pub pax_isr: SimulatedIsr,
 
     // -- Sources: polled (I2C) -------------------------------------------
+    //
+    // One shared I2C bus instance serves every polled device node (each
+    // device is distinguished by address, and the pump drives the bus
+    // exclusively, like the DMA engines).
+    #[cfg(any(
+        feature = "sensor-bme280",
+        feature = "sensor-sht4x",
+        feature = "sensor-scd4x",
+        feature = "sensor-bh1750"
+    ))]
+    pub i2c: bus::SimulatedI2c,
     #[cfg(feature = "sensor-bme280")]
     pub bme280: sensors::bme280::Node,
     #[cfg(feature = "sensor-sht4x")]
@@ -133,6 +151,13 @@ impl Graph {
             pax: sensors::pax::Node::new(),
             #[cfg(feature = "sensor-pax")]
             pax_isr: SimulatedIsr::new(),
+            #[cfg(any(
+                feature = "sensor-bme280",
+                feature = "sensor-sht4x",
+                feature = "sensor-scd4x",
+                feature = "sensor-bh1750"
+            ))]
+            i2c: bus::SimulatedI2c::new(),
             #[cfg(feature = "sensor-bme280")]
             bme280: sensors::bme280::Node::new(),
             #[cfg(feature = "sensor-sht4x")]
@@ -196,11 +221,11 @@ impl Graph {
         }
         #[cfg(feature = "sensor-bme280")]
         {
-            self.bme280.poll();
+            self.bme280.poll(&mut self.i2c);
         }
         #[cfg(feature = "sensor-sht4x")]
         {
-            self.sht4x.poll();
+            self.sht4x.poll(&mut self.i2c);
         }
         #[cfg(feature = "sensor-scd4x")]
         {

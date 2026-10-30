@@ -35,6 +35,13 @@
 #![cfg_attr(not(test), no_std)]
 
 pub mod budget;
+#[cfg(any(
+    feature = "sensor-bme280",
+    feature = "sensor-sht4x",
+    feature = "sensor-scd4x",
+    feature = "sensor-bh1750"
+))]
+pub mod bus;
 pub mod cell;
 pub mod config;
 pub mod dma;
