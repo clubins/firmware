@@ -8,8 +8,14 @@
 default:
     @{{ just_executable() }} --list
 
-# Host CI: format check, lint, build and test the pure-logic personality.
-check: fmt-check lint build test
+# The I²C sensor drivers' feature set. The default feature set compiles
+# none of them (decibel + transport-http + ops-status), so lint and test
+# re-run with the drivers on — `just check` gates the code this repo ships.
+DRIVER_FLAGS := "sensor-bme280,sensor-sht4x,sensor-scd4x"
+
+# Host CI: format check, lint, build and test the pure-logic personality —
+# with and without the driver features.
+check: fmt-check lint build test lint-drivers test-drivers
 
 fmt:
     cargo fmt
@@ -25,6 +31,12 @@ build:
 
 test:
     cargo test --locked
+
+lint-drivers:
+    cargo clippy --locked --features {{DRIVER_FLAGS}} -- -D warnings
+
+test-drivers:
+    cargo test --locked --features {{DRIVER_FLAGS}}
 
 # Flag matrix: all-off, every public leaf alone, all-on. The device
 # personality is Xtensa-only, so on the host this verifies the feature

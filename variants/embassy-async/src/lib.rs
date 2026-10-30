@@ -34,4 +34,5 @@ pub mod config;
 pub mod events;
 pub mod features;
 pub mod sensor;
+pub mod sensors;
 pub mod session;

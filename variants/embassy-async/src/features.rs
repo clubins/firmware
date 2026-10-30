@@ -329,10 +329,22 @@ mod tests {
         }
         let tasks = planned_tasks();
         let names: Vec<&str, MAX_TASKS> = tasks.iter().map(|t| t.name).collect();
-        assert_eq!(
-            names.as_slice(),
-            ["decibel-sensor", "http-transport", "ops-status"]
-        );
+        // The plan follows the compiled feature set: the three I²C sensors
+        // slot in after the decibel source, ahead of transport and ops.
+        let mut expected: Vec<&str, MAX_TASKS> = Vec::new();
+        expected.push("decibel-sensor").unwrap();
+        if cfg!(feature = "sensor-bme280") {
+            expected.push("bme280-sensor").unwrap();
+        }
+        if cfg!(feature = "sensor-sht4x") {
+            expected.push("sht4x-sensor").unwrap();
+        }
+        if cfg!(feature = "sensor-scd4x") {
+            expected.push("scd4x-sensor").unwrap();
+        }
+        expected.push("http-transport").unwrap();
+        expected.push("ops-status").unwrap();
+        assert_eq!(names.as_slice(), expected.as_slice());
     }
 
     #[test]
