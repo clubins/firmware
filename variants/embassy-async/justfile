@@ -8,10 +8,11 @@
 default:
     @{{ just_executable() }} --list
 
-# The I²C sensor drivers' feature set. The default feature set compiles
+# The hardware sensor drivers' feature set: the I²C sensors plus the
+# UART (PMS5003) and GPIO (PIR) drivers. The default feature set compiles
 # none of them (decibel + transport-http + ops-status), so lint and test
 # re-run with the drivers on — `just check` gates the code this repo ships.
-DRIVER_FLAGS := "sensor-bme280,sensor-sht4x,sensor-scd4x"
+DRIVER_FLAGS := "sensor-bme280,sensor-sht4x,sensor-scd4x,sensor-pms5003,sensor-pax"
 
 # Host CI: format check, lint, build and test the pure-logic personality —
 # with and without the driver features.

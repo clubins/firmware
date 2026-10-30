@@ -129,7 +129,9 @@ mod tests {
     use crate::sensors::gpio::{Edge, fakes::ScriptedEdges};
 
     /// One episode — a rise then the line returning to idle — publishes
-    /// a single detection, and the waits are settle-then-window.
+    /// a single detection. Wired with the device configuration's own
+    /// warm-up and window so the wiring constants stay pinned: the waits
+    /// are settle-then-debounce, in that order.
     #[test]
     fn one_episode_counts_one_detection() {
         block_on(async {
@@ -137,13 +139,16 @@ mod tests {
             let mut driver = Pir::new(
                 ScriptedEdges::new(&[Edge::Rising, Edge::Falling]),
                 &mut clock,
-                100,
-                50,
+                crate::config::PIR_SETTLE_MS,
+                crate::config::PIR_DEBOUNCE_MS,
             );
             driver.settle().await;
             let sample = driver.sample().await;
             assert_eq!(sample.occupancy_count, 1);
-            assert_eq!(clock.sleeps.as_slice(), &[100, 50]);
+            assert_eq!(
+                clock.sleeps.as_slice(),
+                &[crate::config::PIR_SETTLE_MS, crate::config::PIR_DEBOUNCE_MS]
+            );
         });
     }
 
