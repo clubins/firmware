@@ -437,6 +437,15 @@ pub struct EnvironmentalReading {
     pub pressure_hpa: f32,
 }
 
+/// Temperature and humidity from the SHT4x — its two measured quantities,
+/// with no pressure field: the SHT4x measures none, and the model never
+/// fabricates one. A weather post composes pressure from the BME280.
+#[derive(Clone, Copy, Debug)]
+pub struct TemperatureHumidityReading {
+    pub temperature_c: f32,
+    pub humidity_percent: f32,
+}
+
 /// CO₂ concentration from the SCD4x, in ppm (the sensor's native `u16`).
 #[derive(Clone, Copy, Debug)]
 pub struct Co2Reading {
