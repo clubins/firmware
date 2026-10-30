@@ -1,0 +1,31 @@
+# Committed sdkconfig defaults for the C1 flags variant.
+#
+# Capability defaults are all-off on purpose — exactly V1's
+# `default = []`: the default build compiles no capabilities, which is
+# also the all-off anchor of the flag matrix. The all-on anchor lives in
+# sdkconfig.defaults.all-features. Secrets never live here: Wi-Fi
+# credentials, API key, and client certificates are NVS-only at runtime.
+#
+# ESP-IDF pin: v5.5.6 (see README.md).
+
+CONFIG_IDF_TARGET="esp32s3"
+
+# --- Capability flags: all 15 explicitly off in the default build -------
+# CONFIG_CLUBINS_CAP_SENSOR_DECIBEL is not set
+# CONFIG_CLUBINS_CAP_SENSOR_PAX is not set
+# CONFIG_CLUBINS_CAP_SENSOR_BME280 is not set
+# CONFIG_CLUBINS_CAP_SENSOR_SHT4X is not set
+# CONFIG_CLUBINS_CAP_SENSOR_SCD4X is not set
+# CONFIG_CLUBINS_CAP_SENSOR_PMS5003 is not set
+# CONFIG_CLUBINS_CAP_SENSOR_BH1750 is not set
+# CONFIG_CLUBINS_CAP_TRANSPORT_HTTP is not set
+# CONFIG_CLUBINS_CAP_TRANSPORT_MQTT is not set
+# CONFIG_CLUBINS_CAP_TRANSPORT_MTLS is not set
+# CONFIG_CLUBINS_CAP_OTA is not set
+# CONFIG_CLUBINS_CAP_PROVISIONING is not set
+# CONFIG_CLUBINS_CAP_DEEP_SLEEP is not set
+# CONFIG_CLUBINS_CAP_LOGGING_DEFMT is not set
+# CONFIG_CLUBINS_CAP_OPS_STATUS is not set
+
+# Internal plumbing flags stay unset too; Kconfig selects them when the
+# leaves that need them are enabled.

@@ -1,0 +1,12 @@
+# ESP-IDF build outputs (never committed)
+build/
+sdkconfig
+sdkconfig.old
+sdkconfig.bak
+
+# Component manager downloads
+managed_components/
+dependencies.lock
+
+# Host build tree is covered by build/ above; nothing else in the variant
+# is generated.
