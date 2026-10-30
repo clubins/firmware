@@ -22,6 +22,24 @@ pub enum BusError {
     Other,
 }
 
+/// Sensirion's CRC-8 (polynomial 0x31, init 0xFF, MSB first) — the
+/// checksum protecting every transferred word on the Sensirion I2C
+/// sensors (SHT4x, SCD4x; the app note's check value 0xBEEF → 0x92).
+pub fn crc8(bytes: &[u8]) -> u8 {
+    let mut crc: u8 = 0xFF;
+    for &b in bytes {
+        crc ^= b;
+        for _ in 0..8 {
+            crc = if crc & 0x80 != 0 {
+                (crc << 1) ^ 0x31
+            } else {
+                crc << 1
+            };
+        }
+    }
+    crc
+}
+
 /// Synchronous I2C transactions — the register-level voice of the drivers.
 /// Mirrors the embedded-hal operation set (write / read / write-read) so
 /// the future `esp-hal` adapter is a thin wrapper.
