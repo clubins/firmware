@@ -18,10 +18,12 @@
 #![cfg_attr(not(test), no_std)]
 extern crate alloc;
 
+pub mod config;
 pub mod dispatcher;
 pub mod events;
 pub mod fsm;
 pub mod measurement;
+pub mod nvs;
 pub mod stubkit;
 pub mod system;
 

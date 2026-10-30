@@ -1,0 +1,98 @@
+# Clubins firmware runtime configuration — committed defaults.
+#
+# This file is compiled into the binary (include_str!) and forms the middle
+# layer of the precedence rule (spec §Configuration):
+#
+#     NVS override > config/default.toml > built-in constant
+#
+# Every runtime tunable appears here exactly once with its default. Values a
+# device overrides for itself (sensor identity, calibration) are set through
+# NVS at provisioning time — a config edit re-tunes the fleet, NVS tunes the
+# unit. Secrets (Wi-Fi credentials, API key, client certs) live only in NVS
+# and must never be added to this file; a host test enforces that.
+#
+# Grammar: the firmware parses a deliberate TOML subset — [table] and
+# [table.sub] headers, bare keys, basic strings, integers, floats, booleans,
+# and # comments. Unknown keys are tolerated and reported as boot warnings;
+# they never fail a boot.
+
+[device]
+# Sensor identity sent with every measurement (the wire contract's sensor_id).
+# The nil UUID is the factory placeholder; provisioning writes the real
+# per-device UUID into NVS, which overrides this value.
+sensor_id = "00000000-0000-0000-0000-000000000000"
+
+[transport]
+# Which compiled transport runs: "http" or "mqtt". Selecting a transport that
+# was not compiled in (cargo flag) fails at boot with a fault — a config edit
+# can tune, never enable, a capability (spec §Configuration).
+active = "http"
+
+[transport.http]
+# Ingest origin; the transport appends /v1/sensors/<type> (Caddy strips /v1
+# for the Go service). Credentials are never set here — the API key is read
+# from NVS at use time.
+endpoint = "https://ingest.clubins.de"
+# Per-request timeout for one measurement POST.
+timeout_ms = 5000
+# Verify the server certificate chain. Disable only on an isolated bench.
+verify_tls = true
+
+[transport.mqtt]
+# Broker per server-infra/hosts/prod.nix; 8883 is mQTTS (TLS).
+host = "mqtt.clubins.de"
+port = 8883
+# MQTT keep-alive interval in seconds.
+keepalive_secs = 60
+
+[sampling]
+# Default measurement cadence for every compiled sensor that does not set its
+# own interval_ms below.
+interval_ms = 1000
+
+[sensors.decibel]
+# Measurement cadence; the DSP samples continuously at 48 kHz and emits one
+# record per window (decibel.md).
+interval_ms = 1000
+# Aggregation window for LAeq/LCeq and the Fast-detector extrema.
+window_ms = 60000
+# Per-unit calibration offset in dB, added after level conversion
+# (decibel.md: L = 10·log10(...) + 120 + offset). NVS-overridable per unit.
+calibration_offset_db = 0.0
+# Raw-PCM clipping threshold measured on hardware (decibel.md §Overload);
+# i16::MAX until the converter's gain is characterized. NVS-overridable.
+overload_pcm = 32767
+
+[sensors.pax]
+interval_ms = 1000
+# GPIO pin of the PIR front-end (spec §Sensors: "pin from config").
+pir_pin = 4
+
+[sensors.bme280]
+interval_ms = 10000
+
+[sensors.sht4x]
+interval_ms = 10000
+
+[sensors.scd4x]
+interval_ms = 10000
+
+[sensors.pms5003]
+interval_ms = 30000
+
+[sensors.bh1750]
+interval_ms = 10000
+
+[publish]
+# Cadence for flushing aggregated measurements to the active transport.
+interval_ms = 15000
+# Exponential backoff on publish failures: start here, double up to the max.
+backoff_initial_ms = 500
+backoff_max_ms = 30000
+# Bounded offline buffer (measurements held while the link is down).
+offline_buffer = 64
+
+[status]
+# Device status heartbeat cadence (retained status on connect, per the
+# MQTT contract; periodic heartbeat while online).
+heartbeat_ms = 30000
