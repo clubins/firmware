@@ -1,0 +1,57 @@
+# V2 workspace recipes. Every recipe expects the pinned toolchain from
+# shell.nix — run them through the shell, never with the host's cargo:
+#
+#   nix-shell --pure --run 'just check'
+#
+# (the recipe this workspace adapts is documented in
+# docs/research/firmware-internals-build-and-ci.md on the repo root).
+
+xtensa-target := "xtensa-esp32s3-none-elf"
+
+# The 15 public capability flags (spec §Feature Matrix).
+flags := "sensor-decibel sensor-pax sensor-bme280 sensor-sht4x sensor-scd4x sensor-pms5003 sensor-bh1750 transport-http transport-mqtt transport-mtls ota provisioning deep-sleep logging-defmt ops-status"
+
+default: check
+
+fmt:
+    cargo fmt --all
+
+fmt-check:
+    cargo fmt --all -- --check
+
+# Clippy gate: warnings are errors (monorepo CI convention).
+clippy:
+    cargo clippy --workspace --all-targets --locked -- -D warnings
+
+build:
+    cargo build --workspace --locked
+
+test:
+    cargo test --workspace --locked
+
+# Host CI gate: format, lint, build, test.
+check: fmt-check clippy build test
+
+# ESP32-S3 release image. rust-lld + -Tlinkall.x come from .cargo/config.toml;
+# the fork ships no prebuilt std for Xtensa, so core/alloc build from source.
+# FEATURES defaults to the default feature set; pass --all-features for the
+# all-features image (`just xtensa --all-features`).
+xtensa *FEATURES:
+    cargo build -p firmware --release --target {{xtensa-target}} -Zbuild-std=core,alloc {{FEATURES}}
+
+# Host feature matrix: all-off, each leaf flag alone, all-on. Any
+# combination must compile — this is the flag-independence gate. The Xtensa
+# personality comes in with the target (not a feature), so host builds of
+# every combination stay fast.
+feature-matrix:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "== all-off =="
+    cargo build -p firmware --no-default-features
+    for flag in {{flags}}; do
+        echo "== $flag alone =="
+        cargo build -p firmware --no-default-features --features "$flag"
+    done
+    echo "== all-on (host) =="
+    cargo build -p firmware --all-features
+    echo "feature matrix OK"

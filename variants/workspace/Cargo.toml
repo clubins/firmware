@@ -1,0 +1,62 @@
+[workspace]
+resolver = "3"
+members = [
+    "firmware-core",
+    "firmware",
+    "net/net-wifi",
+    "net/proto-v2",
+    "drivers/driver-decibel",
+    "drivers/driver-pax",
+    "drivers/driver-bme280",
+    "drivers/driver-sht4x",
+    "drivers/driver-scd4x",
+    "drivers/driver-pms5003",
+    "drivers/driver-bh1750",
+    "transports/transport-http",
+    "transports/transport-mqtt",
+    "ops/ops-ota",
+    "ops/ops-provisioning",
+    "ops/ops-sleep",
+    "ops/ops-status",
+    "ops/logging-defmt",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/clubins/firmware"
+
+[workspace.dependencies]
+# Shared external pins. esp-hal is the approved spec pin (1.2.2); the Xtensa
+# fork toolchain that compiles it is delivered by esp-toolchain.nix.
+esp-hal = { version = "=1.2.2", features = ["esp32s3"] }
+# Same-vintage espressif crates (April 2026 line): esp-alloc for the global
+# heap, esp-backtrace for the panic handler. Neither depends on esp-hal, so
+# there is no version graph to keep in step; the fork's 1.97 rustc clears
+# both crates' rust_version floors.
+esp-alloc = "=0.10.0"
+esp-backtrace = "=0.19.0"
+esp-println = "=0.17.0"
+heapless = "0.9"
+
+# Internal crates. The firmware bin maps spec §Feature Matrix flags to these
+# as optional dependencies (feature → crate); everything else depends on
+# firmware-core for the shared measurement/sensor/config model.
+firmware-core = { path = "firmware-core" }
+net-wifi = { path = "net/net-wifi" }
+proto-v2 = { path = "net/proto-v2" }
+driver-decibel = { path = "drivers/driver-decibel" }
+driver-pax = { path = "drivers/driver-pax" }
+driver-bme280 = { path = "drivers/driver-bme280" }
+driver-sht4x = { path = "drivers/driver-sht4x" }
+driver-scd4x = { path = "drivers/driver-scd4x" }
+driver-pms5003 = { path = "drivers/driver-pms5003" }
+driver-bh1750 = { path = "drivers/driver-bh1750" }
+transport-http = { path = "transports/transport-http" }
+transport-mqtt = { path = "transports/transport-mqtt" }
+ops-ota = { path = "ops/ops-ota" }
+ops-provisioning = { path = "ops/ops-provisioning" }
+ops-sleep = { path = "ops/ops-sleep" }
+ops-status = { path = "ops/ops-status" }
+logging-defmt = { path = "ops/logging-defmt" }
