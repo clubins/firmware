@@ -1,0 +1,58 @@
+# CI for the V2 multi-crate workspace (variants/workspace/).
+#
+# GitHub-hosted ubuntu-latest only — there is no self-hosted runner for this
+# repo. Nix comes from the Determinate Systems installer; every job runs its
+# recipes inside `nix-shell --pure` so the toolchain is exactly the one
+# pinned in variants/workspace/esp-toolchain.nix, never the runner's stable
+# rustc (which breaks esp-hal <= 1.2.2).
+
+name: ci-v2
+
+on:
+  push:
+    branches: [v2/workspace-scaffold]
+    paths:
+      - "variants/workspace/**"
+      - ".github/workflows/ci-v2.yml"
+  pull_request:
+    paths:
+      - "variants/workspace/**"
+      - ".github/workflows/ci-v2.yml"
+
+concurrency:
+  group: ci-v2-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: variants/workspace
+
+jobs:
+  check:
+    name: check (fmt + clippy + build + test, host)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v22
+      - name: just check
+        run: nix-shell --pure --run 'just check'
+
+  feature-matrix:
+    name: feature matrix (all-off / each flag alone / all-on, host)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v22
+      - name: just feature-matrix
+        run: nix-shell --pure --run 'just feature-matrix'
+
+  xtensa:
+    name: ESP32-S3 link (release)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v22
+      - name: link default features
+        run: nix-shell --pure --run 'just xtensa'
+      - name: link all features
+        run: nix-shell --pure --run 'just xtensa-all'
