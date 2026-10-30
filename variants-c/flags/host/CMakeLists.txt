@@ -54,3 +54,15 @@ add_executable(test_http_json_codec
 target_include_directories(test_http_json_codec PRIVATE "${CLUBINS_UNITY_DIR}")
 target_link_libraries(test_http_json_codec PRIVATE clubins_core)
 add_test(NAME http_json_codec COMMAND test_http_json_codec)
+
+add_executable(test_ingest_conformance
+    test_ingest_conformance.c
+    "${CLUBINS_UNITY_DIR}/unity.c"
+)
+target_include_directories(test_ingest_conformance PRIVATE "${CLUBINS_UNITY_DIR}")
+target_compile_definitions(
+    test_ingest_conformance
+    PRIVATE CLUBINS_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/ingest"
+)
+target_link_libraries(test_ingest_conformance PRIVATE clubins_core)
+add_test(NAME ingest_conformance COMMAND test_ingest_conformance)
