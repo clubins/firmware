@@ -18,7 +18,6 @@ set(CLUBINS_SRCS
     "http_json.c"
     "config.c"
     "nvs_overrides.c"
-    "${CMAKE_CURRENT_LIST_DIR}/../third_party/tomlc99/toml.c"
     ${CLUBINS_CAP_SOURCES}
 )
 
@@ -34,3 +33,16 @@ idf_component_register(
 # readable). Single source of truth stays at config/default.toml.
 target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_LIST_DIR}/../config/default.toml" TEXT
     RENAME "default_toml")
+
+# Vendored tomlc99 builds in its own bucket, outside the component's warning
+# set: IDF compiles components with -Werror=all, which turns upstream's
+# char-subscripts sites in toml.c into hard errors. Vendored sources stay at
+# their pinned upstream revision (no patches), so warnings are suppressed for
+# this target only — the same third-party-owns-its-warnings policy as the
+# host harness.
+add_library(tomlc99 STATIC
+    "${CMAKE_CURRENT_LIST_DIR}/../third_party/tomlc99/toml.c")
+target_include_directories(tomlc99 SYSTEM PUBLIC
+    "${CMAKE_CURRENT_LIST_DIR}/../third_party/tomlc99")
+target_compile_options(tomlc99 PRIVATE -w)
+target_link_libraries(${COMPONENT_LIB} PRIVATE tomlc99)
