@@ -702,4 +702,90 @@ mod tests {
         assert_eq!(engine.dropped("db"), Some(0));
         assert!(engine.last_delivered("db").is_none());
     }
+
+    #[test]
+    #[cfg(all(feature = "sensor-bme280", feature = "transport-http"))]
+    fn a_bme280_source_walks_its_datasheet_flow_to_the_sink() {
+        // The engine replays the canonical BME280 register flow over its
+        // own bus: beat 1 brings the part up, beat 2 converts and delivers
+        // the compensated environmental reading to the weather sink.
+        let mut bus = SimulatedI2c::new();
+        crate::sensors::bme280::fixtures::script_init(&mut bus);
+        crate::sensors::bme280::fixtures::script_conversion(&mut bus);
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "weather-bme280"
+            source = { kind = "bme280", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "weather"
+            "#,
+        )
+        .with_bus(bus);
+
+        assert_eq!(engine.tick(0), ["weather-bme280"]);
+        assert_eq!(engine.delivered("weather-bme280"), Some(0));
+        assert_eq!(engine.tick(1000), ["weather-bme280"]);
+        assert_eq!(engine.delivered("weather-bme280"), Some(1));
+        assert_eq!(engine.source_faults("weather-bme280"), Some(0));
+        assert_eq!(
+            engine.last_delivered("weather-bme280"),
+            Some(&crate::sensors::bme280::fixtures::canonical())
+        );
+    }
+
+    #[test]
+    #[cfg(all(feature = "sensor-bme280", feature = "transport-http"))]
+    fn a_dead_bus_counts_faults_and_stays_scheduled() {
+        // Nothing scripted: every beat faults, the pipeline keeps its
+        // place in the schedule, and no measurement is invented.
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "weather-bme280"
+            source = { kind = "bme280", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "weather"
+            "#,
+        );
+        assert_eq!(engine.tick(0), ["weather-bme280"]);
+        assert_eq!(engine.tick(1000), ["weather-bme280"]);
+        assert_eq!(engine.delivered("weather-bme280"), Some(0));
+        assert_eq!(engine.source_faults("weather-bme280"), Some(2));
+    }
+
+    #[test]
+    #[cfg(all(feature = "sensor-sht4x", feature = "transport-http"))]
+    fn an_sht4x_source_walks_its_command_flow_to_the_sink() {
+        // Four beats: soft reset, serial probe, measurement command,
+        // collection — the SHT4x flow legs are one bus op per beat.
+        let mut bus = SimulatedI2c::new();
+        crate::sensors::sht4x::fixtures::script_init(&mut bus);
+        crate::sensors::sht4x::fixtures::script_measurement(&mut bus);
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "weather-sht4x"
+            source = { kind = "sht4x", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "weather"
+            "#,
+        )
+        .with_bus(bus);
+
+        for ms in [0, 1000, 2000] {
+            assert_eq!(engine.tick(ms), ["weather-sht4x"]);
+        }
+        assert_eq!(engine.delivered("weather-sht4x"), Some(0));
+        assert_eq!(engine.tick(3000), ["weather-sht4x"]);
+        assert_eq!(engine.delivered("weather-sht4x"), Some(1));
+        assert_eq!(engine.source_faults("weather-sht4x"), Some(0));
+        assert_eq!(
+            engine.last_delivered("weather-sht4x"),
+            Some(&crate::sensors::sht4x::fixtures::canonical())
+        );
+    }
 }
