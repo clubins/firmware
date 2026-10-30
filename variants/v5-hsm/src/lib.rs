@@ -23,6 +23,7 @@ pub mod dispatcher;
 pub mod events;
 pub mod fsm;
 pub mod measurement;
+pub mod nvs;
 pub mod stubkit;
 pub mod system;
 
