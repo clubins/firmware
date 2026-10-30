@@ -132,12 +132,13 @@ impl Dispatcher {
     }
 
     /// Registers a machine, keeping the delivery order ascending by
-    /// (priority, registration order).
+    /// priority; equal priorities keep registration order.
     pub fn register(&mut self, machine: Box<dyn Machine>) {
-        let key = (machine.priority(), machine.id());
-        let idx = self
-            .machines
-            .partition_point(|m| (m.priority(), m.id()) <= key);
+        let priority = machine.priority();
+        // First machine with a strictly higher priority: existing
+        // equal-priority machines stay ahead of the newcomer, so ties
+        // resolve in registration order (the documented tie-break).
+        let idx = self.machines.partition_point(|m| m.priority() <= priority);
         self.machines.insert(idx, machine);
     }
 
@@ -429,5 +430,17 @@ mod tests {
         assert_eq!(d.stats.delivered, 1);
         assert_eq!(d.stats.dropped, 0);
         assert!(d.is_empty());
+    }
+
+    #[test]
+    fn equal_priority_machines_deliver_in_registration_order() {
+        let (mut d, log) = boot();
+        // Registered in non-lexical id order: "zeta" first. The documented
+        // tie-break is registration order, not id sort — this test pins it.
+        d.register(Box::new(Probe::new("zeta", 5, &[SIG_A], Rc::clone(&log))));
+        d.register(Box::new(Probe::new("alpha", 5, &[SIG_A], Rc::clone(&log))));
+        assert!(d.post(Event::new(SIG_A)));
+        d.run_until_idle(16);
+        assert_eq!(*log.borrow(), ["zeta", "alpha"]);
     }
 }
