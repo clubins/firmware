@@ -90,7 +90,17 @@ nix-shell --pure --run 'just build-target --all-features'
 Host builds compile the pure-logic personality with zero external
 dependencies; `main.rs` on host is an empty shell — the library is the tested
 surface. Target builds link with `rust-lld -Tlinkall.x -Zbuild-std=core` (see
-`.cargo/config.toml` and `rust-toolchain.toml` for why).
+`.cargo/config.toml` for why).
+
+### Why there is no rust-toolchain.toml
+
+The Nix shell is the single toolchain pin. We deliberately do not commit a
+`rust-toolchain.toml`: cargo reads toolchain override files natively, and an
+override naming the espup fork channel (`channel = "esp"`) is unresolvable
+unless that channel was rustup-linked by `espup` — on hosted CI it fails even
+inside `nix-shell --pure` with `error: custom toolchain 'esp' ... is not
+installed`. The pinned fork comes from `esp-toolchain.nix`; installing it
+outside Nix is `espup`'s job, documented in the comment header there.
 
 ## Status
 

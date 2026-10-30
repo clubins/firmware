@@ -1,8 +1,15 @@
 # Pinned development/CI shell for the V4 cyclic executive crate.
 #
+# This shell IS the toolchain pin: esp-rs Rust fork 1.97.0.0 + Xtensa GCC
+# 15.2.0, same nixpkgs source as the monorepo. There is deliberately no
+# rust-toolchain.toml in this crate — cargo reads toolchain override files
+# natively, and an override naming the espup channel (`channel = "esp"`)
+# breaks even nix-provided cargo when no rustup-linked channel exists
+# (hosted-CI failure mode; see README "Why there is no rust-toolchain.toml").
+#
 # Standalone by design: this variant is self-contained and must not reference
 # repo-root files (see docs/research/firmware-internals-build-and-ci.md for the
-# recipe this adapts). The pin matches the monorepo's shared nixpkgs source.
+# recipe this adapts).
 #
 # All recipes assume this shell:
 #   nix-shell --pure --run 'just check'

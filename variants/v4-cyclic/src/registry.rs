@@ -7,9 +7,9 @@
 //! the time-triggered variant allocates nothing at run time.
 
 use crate::bus::Bus;
-use crate::sensor::{Sample, SensorError, SensorMeta};
 #[cfg(feature = "any-sensor")]
 use crate::sensor::Sensor;
+use crate::sensor::{Sample, SensorError, SensorMeta};
 
 pub const MAX_SENSORS: usize = 8;
 
