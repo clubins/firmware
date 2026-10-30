@@ -320,7 +320,7 @@ mod tests {
     #[test]
     fn full_ladder_builtin_below_document_below_nvs() {
         // Built-in rung: no document, no overrides.
-        let mut config = Config::builtin();
+        let config = Config::builtin();
         assert_eq!(config.sampling.report_interval_s, 60);
 
         // Document rung: default.toml beats the built-in.
