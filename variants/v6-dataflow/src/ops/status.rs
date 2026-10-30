@@ -24,9 +24,12 @@ pub const PERIOD_STEPS: u32 = 100;
 /// firmware; string rendering is the transport PR's fixed-buffer job).
 pub const SUBSYSTEM: u8 = 0;
 
-/// `result` value for a healthy heartbeat (0 = ok, matching the server's
-/// status result convention).
-pub const RESULT_OK: u8 = 0;
+/// `result` value for a healthy heartbeat: `success`, index 2 in the
+/// server's closed vocabulary (`started|stopped|success|degraded|failed` —
+/// [`crate::measurement::STATUS_RESULTS`]; the scaffold's earlier
+/// "0 = ok" predated the vocabulary, and "ok" is not a value the server
+/// accepts).
+pub const RESULT_OK: u8 = crate::measurement::RESULT_SUCCESS;
 
 /// The status heartbeat node: emits a `status` measurement periodically.
 pub struct Node {
