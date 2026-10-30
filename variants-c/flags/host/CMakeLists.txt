@@ -17,6 +17,12 @@ include(${CMAKE_CURRENT_LIST_DIR}/../caps.cmake)
 
 set(CLUBINS_UNITY_DIR "${CLUBINS_APP_DIR}/host/unity")
 
+# Vendored tomlc99 — third party, so it builds outside the strict-warnings
+# core (like Unity) and its warnings never mask ours. The SYSTEM include
+# keeps upstream header noise out of core compilation too.
+add_library(tomlc99 STATIC "${CLUBINS_APP_DIR}/third_party/tomlc99/toml.c")
+target_include_directories(tomlc99 SYSTEM PUBLIC "${CLUBINS_APP_DIR}/third_party/tomlc99")
+
 # The core under test — strict warnings are the C analog of clippy
 # -D warnings. Unity (third party) is built outside this target so its
 # warnings never mask ours.
@@ -24,9 +30,11 @@ add_library(clubins_core STATIC
     "${CLUBINS_APP_DIR}/main/cap_registry.c"
     "${CLUBINS_APP_DIR}/main/measurement.c"
     "${CLUBINS_APP_DIR}/main/http_json.c"
+    "${CLUBINS_APP_DIR}/main/config.c"
     ${CLUBINS_CAP_SOURCES}
 )
 target_include_directories(clubins_core PUBLIC "${CLUBINS_APP_DIR}/main")
+target_link_libraries(clubins_core PRIVATE tomlc99)
 target_compile_options(clubins_core PRIVATE -Wall -Wextra -Werror)
 
 add_executable(test_flag_framework
