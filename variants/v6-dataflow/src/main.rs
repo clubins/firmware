@@ -10,6 +10,12 @@
 //! scaffold proves the Xtensa personality builds and links with the graph
 //! resident in a `static`.
 //!
+//! Boot order: resolve the runtime config (built-in constants < the
+//! committed `config/default.toml` < NVS overrides), then pin the graph.
+//! A mis-formatted committed file is a build/review defect and aborts the
+//! boot parse; NVS problems only warn and fall back to the layer below
+//! (see `config` module docs).
+//!
 //! Host builds of the bin target stay std on purpose: they exist so `cargo
 //! check` and `cargo test` are green on machines without the Xtensa target.
 #![cfg_attr(target_arch = "xtensa", no_std, no_main)]
@@ -17,7 +23,21 @@
 #[cfg(target_arch = "xtensa")]
 #[esp_hal::main]
 fn main() -> ! {
-    use firmware_v6_dataflow::{cell::StaticCell, graph::Graph};
+    use firmware_v6_dataflow::{
+        cell::StaticCell, config, config::Config, graph::Graph, nvs::NvsSource,
+    };
+
+    // The boot-time NVS snapshot (the `clubins` namespace) and the parse
+    // scratch, both statically allocated — the config layer allocates
+    // nothing, like every other stage.
+    static NVS: StaticCell<NvsSource> = StaticCell::new();
+    static SCRATCH: StaticCell<config::Table> = StaticCell::new();
+
+    let nvs = NVS.init(NvsSource::new());
+    let scratch = SCRATCH.init(config::Table::new());
+    let (_config, _warnings) =
+        Config::resolve_in(Some(config::DEFAULT_TOML), nvs, scratch)
+            .expect("committed default.toml must parse");
 
     // The statically-allocated dataflow graph: no heap, no allocator, no
     // locks. The cell pins the graph in `static` storage with a link-time-
