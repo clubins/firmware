@@ -662,7 +662,7 @@ mod tests {
         // stays active; s12 enters.
         assert_eq!(data.trace, ["exit:s11", "enter:s12"]);
         assert!(m.is_in(S12));
-        assert!(!data.trace.iter().any(|t| *t == "exit:s1"));
+        assert!(!data.trace.contains(&"exit:s1"));
     }
 
     #[test]

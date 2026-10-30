@@ -265,10 +265,10 @@ mod tests {
         }
         fn handle(&mut self, event: &Event, ctx: &mut Ctx) {
             self.log.borrow_mut().push(self.id);
-            if self.post_on == Some(event.signal) {
-                if let Some(follow_up) = self.follow_up {
-                    ctx.post(follow_up);
-                }
+            if self.post_on == Some(event.signal)
+                && let Some(follow_up) = self.follow_up
+            {
+                ctx.post(follow_up);
             }
         }
     }
