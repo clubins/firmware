@@ -1,0 +1,48 @@
+# V4 cyclic executive — build and check recipes.
+#
+# All recipes assume the pinned shell (nix provides cargo/clippy/rustfmt for
+# the esp-rs fork; rustup is not involved):
+#   nix-shell --pure --run 'just check'
+
+default := "check"
+
+# The 15 public capability flags (spec §Feature Matrix). Internal plumbing
+# flags are exercised through their public parents and are never built alone.
+public-flags := "sensor-decibel sensor-pax sensor-bme280 sensor-sht4x sensor-scd4x sensor-pms5003 sensor-bh1750 transport-http transport-mqtt transport-mtls ota provisioning deep-sleep logging-defmt ops-status"
+
+xtensa-target := "xtensa-esp32s3-none-elf"
+
+# Full host gate: format, clippy (-D warnings), build, tests.
+check: lint build test
+
+lint:
+    cargo fmt --all -- --check
+    cargo clippy --locked --all-targets -- -D warnings
+
+build:
+    cargo build --locked
+
+test:
+    cargo test --locked
+
+# Host builds of every flag combination: all-off, each public flag alone,
+# all-on. Proves flag independence — any combination must compile.
+flag-matrix:
+    #!/usr/bin/env bash
+    set -euxo pipefail
+    cargo build --locked --no-default-features
+    for flag in {{public-flags}}; do
+        cargo build --locked --no-default-features --features "$flag"
+    done
+    cargo build --locked --all-features
+
+# ESP32-S3 release ELF. build-std is passed on the command line (not in
+# .cargo/config.toml) so host builds never depend on unstable cargo config;
+# the fork ships no prebuilt std for Xtensa, so core is compiled from source.
+build-target *FEATURES:
+    cargo build --locked --release --target {{xtensa-target}} -Zbuild-std=core {{FEATURES}}
+
+# Both transport personalities on the ESP32-S3 target.
+build-target-all:
+    just build-target
+    just build-target --all-features

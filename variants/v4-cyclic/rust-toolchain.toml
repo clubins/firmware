@@ -1,0 +1,10 @@
+# The ESP32-S3 builds on the esp-rs fork (rustc 1.97.0.0): upstream stable has
+# no Xtensa backend, and esp-hal <= 1.2.2 breaks on newer rustc (global_asm!).
+# Install the fork with `espup` as channel `esp`. The Nix shell (shell.nix ->
+# esp-toolchain.nix) pins the same fork for CI and is authoritative there —
+# nix-provided cargo is not rustup-managed and ignores this file.
+#
+# The fork ships no rust-std for xtensa-esp32s3-none-elf, so target builds must
+# compile core from source: `-Zbuild-std=core` (see justfile build-target).
+[toolchain]
+channel = "esp"

@@ -1,0 +1,11 @@
+# Xtensa link recipe — mandatory per docs/research/firmware-internals-build-and-ci.md:
+# the GCC driver cannot cross-link Xtensa ("cross-endian linking not supported"),
+# so rust-lld is the linker, and esp-hal's linker scripts must be passed
+# explicitly (-Tlinkall.x) or lld fails on R_XTENSA_SLOT0_OP relocations.
+#
+# build-std is deliberately NOT put under [unstable] here: it is passed on the
+# command line (justfile build-target) so host builds never depend on unstable
+# cargo config parsing. These target-scoped settings are inert on host builds.
+[target.xtensa-esp32s3-none-elf]
+linker = "rust-lld"
+rustflags = ["-C", "link-arg=-Tlinkall.x"]
