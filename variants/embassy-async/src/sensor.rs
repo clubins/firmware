@@ -499,3 +499,230 @@ pub mod fakes {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use embassy_futures::block_on;
+    use embassy_futures::join::join;
+
+    use super::fakes::{MockClock, ScriptedDriver};
+    use super::*;
+    use crate::channels::Queues;
+    use crate::config::MEASUREMENT_QUEUE_DEPTH;
+    use crate::events::{DecibelSample, MeasurementPayload};
+
+    /// One scripted sample with an observable level: the LAeq carries the
+    /// sample index, so publish order is verifiable end to end.
+    fn laeq_payload(laeq: f32) -> MeasurementPayload {
+        MeasurementPayload::Decibel(DecibelSample {
+            window_ms: 1000,
+            overload: false,
+            laeq,
+            la_fmin: laeq - 10.0,
+            la_fmax: laeq + 10.0,
+            lceq: laeq + 5.0,
+            lc_fmax: laeq + 12.0,
+        })
+    }
+
+    fn params() -> SensorTaskParams {
+        SensorTaskParams::new(1_000, 30_000)
+    }
+
+    #[test]
+    fn a_healthy_driver_samples_on_cadence_and_publishes_in_order() {
+        let queues = Queues::new();
+        let mut driver = ScriptedDriver::new();
+        for i in 0..3 {
+            driver = driver.then_sample(Ok(laeq_payload(90.0 + i as f32)));
+        }
+        let mut clock = MockClock::new();
+        let mut publisher = queues.measurements.sender();
+        let mut task = SensorTask::new();
+
+        for _ in 0..3 {
+            block_on(task.step(&mut driver, &mut clock, &mut publisher, &params()));
+        }
+
+        for i in 0..3 {
+            let event = queues.measurements.try_receive().expect("queued event");
+            assert_eq!(event.seq, i as u32, "seq counts published events from 0");
+            assert_eq!(event.time_ms, 0, "no clock sync yet: time_ms is 0");
+            assert_eq!(event.payload, laeq_payload(90.0 + i as f32));
+        }
+
+        // Cadence: each completed step slept exactly one period, in order.
+        assert_eq!(clock.sleeps.as_slice(), [1_000, 1_000, 1_000]);
+        assert_eq!(driver.sample_calls(), 3);
+    }
+
+    #[test]
+    fn a_failing_sample_backs_off_then_recovers() {
+        let queues = Queues::new();
+        let fault = SensorError::new(SensorFault::Reading, 7);
+        let mut driver = ScriptedDriver::new()
+            .then_sample(Err(fault))
+            .then_sample(Err(fault))
+            .then_sample(Ok(laeq_payload(92.0)));
+        let mut clock = MockClock::new();
+        let mut publisher = queues.measurements.sender();
+        let mut task = SensorTask::new();
+
+        block_on(task.step(&mut driver, &mut clock, &mut publisher, &params()));
+        block_on(task.step(&mut driver, &mut clock, &mut publisher, &params()));
+        assert!(
+            queues.measurements.try_receive().is_err(),
+            "faults publish nothing"
+        );
+        assert_eq!(clock.sleeps.as_slice(), [1_000, 2_000], "backoff doubles");
+        let health = task.health();
+        assert_eq!(health.consecutive_failures, 2);
+        assert_eq!(health.last_error, Some(fault));
+
+        // Recovery: the next success publishes — with the seq the failed
+        // samples never consumed, because seq counts messages, not attempts
+        // — resets the fault state, and returns to the plain cadence.
+        block_on(task.step(&mut driver, &mut clock, &mut publisher, &params()));
+        let event = queues
+            .measurements
+            .try_receive()
+            .expect("recovery published");
+        assert_eq!(event.seq, 0);
+        let health = task.health();
+        assert!(health.ready);
+        assert_eq!(health.consecutive_failures, 0);
+        assert_eq!(health.last_error, None);
+        assert_eq!(clock.sleeps.as_slice(), [1_000, 2_000, 1_000]);
+    }
+
+    #[test]
+    fn backoff_doubles_and_caps_at_the_maximum() {
+        let queues = Queues::new();
+        let mut driver = ScriptedDriver::new();
+        // Seven faults: the doubling runs into the cap and stays there.
+        for _ in 0..7 {
+            driver = driver.then_sample(Err(SensorError::new(SensorFault::Bus, 1)));
+        }
+        let mut clock = MockClock::new();
+        let mut publisher = queues.measurements.sender();
+        let mut task = SensorTask::new();
+
+        for _ in 0..7 {
+            block_on(task.step(&mut driver, &mut clock, &mut publisher, &params()));
+        }
+        assert_eq!(
+            clock.sleeps.as_slice(),
+            [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000],
+            "backoff doubles to the cap, never past it"
+        );
+        assert!(queues.measurements.try_receive().is_err());
+    }
+
+    #[test]
+    fn a_failed_init_retries_the_whole_bring_up() {
+        let queues = Queues::new();
+        let mut driver = ScriptedDriver::new()
+            .then_init(Err(SensorError::new(SensorFault::Hardware, 3)))
+            .then_sample(Ok(laeq_payload(90.0)));
+        let mut clock = MockClock::new();
+        let mut publisher = queues.measurements.sender();
+        let mut task = SensorTask::new();
+
+        block_on(task.step(&mut driver, &mut clock, &mut publisher, &params()));
+        assert!(queues.measurements.try_receive().is_err());
+
+        block_on(task.step(&mut driver, &mut clock, &mut publisher, &params()));
+        let event = queues
+            .measurements
+            .try_receive()
+            .expect("published after retry");
+        assert_eq!(event.seq, 0);
+        // The failed bring-up re-runs init; calibration follows a
+        // successful init, so it has run exactly once.
+        assert_eq!(driver.init_calls(), 2);
+        assert_eq!(driver.calibrate_calls(), 1);
+        assert_eq!(driver.sample_calls(), 1);
+    }
+
+    #[test]
+    fn calibrate_failure_restarts_from_init() {
+        let queues = Queues::new();
+        let mut driver = ScriptedDriver::new()
+            .then_calibrate(Err(SensorError::new(SensorFault::Calibration, 1)))
+            .then_sample(Ok(laeq_payload(90.0)));
+        let mut clock = MockClock::new();
+        let mut publisher = queues.measurements.sender();
+        let mut task = SensorTask::new();
+
+        block_on(task.step(&mut driver, &mut clock, &mut publisher, &params()));
+        assert!(
+            queues.measurements.try_receive().is_err(),
+            "no sample after failed calibration"
+        );
+
+        block_on(task.step(&mut driver, &mut clock, &mut publisher, &params()));
+        assert!(queues.measurements.try_receive().is_ok());
+        // A sensor that half-initialised starts over: init runs again.
+        assert_eq!(driver.init_calls(), 2);
+        assert_eq!(driver.calibrate_calls(), 2);
+    }
+
+    /// The publish-ordering test under real backpressure: more events than
+    /// the queue is deep, producer and consumer joined — every event
+    /// arrives exactly once, in sample order, seq intact.
+    #[test]
+    fn publishes_keep_flowing_past_queue_depth() {
+        let queues = Queues::new();
+        let total = MEASUREMENT_QUEUE_DEPTH + 4;
+        let mut driver = ScriptedDriver::new();
+        for i in 0..total {
+            driver = driver.then_sample(Ok(laeq_payload(90.0 + i as f32)));
+        }
+
+        let (clock, laeqs) = block_on(join(
+            async {
+                let mut clock = MockClock::new();
+                let mut publisher = queues.measurements.sender();
+                let mut task = SensorTask::new();
+                for _ in 0..total {
+                    task.step(&mut driver, &mut clock, &mut publisher, &params())
+                        .await;
+                }
+                clock
+            },
+            async {
+                let mut laeqs = heapless::Vec::<f32, 64>::new();
+                while laeqs.len() < total {
+                    let event = queues.measurements.receive().await;
+                    let MeasurementPayload::Decibel(sample) = event.payload else {
+                        panic!("unexpected payload kind");
+                    };
+                    let _ = laeqs.push(sample.laeq);
+                }
+                laeqs
+            },
+        ));
+
+        // The producer's own cadence held: one period sleep per completed
+        // step, including the steps that parked in send().await.
+        assert_eq!(clock.sleeps.len(), total);
+        assert!(clock.sleeps.iter().all(|ms| *ms == 1_000));
+
+        for (i, laeq) in laeqs.iter().enumerate() {
+            assert_eq!(*laeq, 90.0 + i as f32, "event {i} arrived in sample order");
+        }
+    }
+
+    #[test]
+    fn scripted_driver_repeats_its_final_outcome() {
+        let mut driver = ScriptedDriver::new()
+            .then_sample(Ok(laeq_payload(1.0)))
+            .then_sample(Ok(laeq_payload(2.0)));
+        // A finite script settling on its last entry is what lets an
+        // unbounded task loop run forever without panicking.
+        assert_eq!(block_on(driver.sample()), Ok(laeq_payload(1.0)));
+        assert_eq!(block_on(driver.sample()), Ok(laeq_payload(2.0)));
+        assert_eq!(block_on(driver.sample()), Ok(laeq_payload(2.0)));
+        assert_eq!(driver.sample_calls(), 3);
+    }
+}
