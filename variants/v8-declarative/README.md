@@ -8,9 +8,9 @@ retuning a sensor is a TOML edit, not a recompile. Cargo features gate which
 kinds exist; runtime TOML gates which instances run.
 
 Self-contained like every variant: all toolchain files live in this directory
-and CI runs from here (`nix-shell --pure --run 'just check'`). The repo root
-hosts no toolchain for V8 and this crate never touches the root crate, other
-variants, or `docs/`.
+and builds run from here (`nix-shell --pure --run 'just check'`). The repo
+root hosts no toolchain for V8 and this crate never touches the root crate,
+other variants, or `docs/`.
 
 ## Architecture map
 
