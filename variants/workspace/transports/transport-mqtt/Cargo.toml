@@ -1,0 +1,16 @@
+[package]
+name = "transport-mqtt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+firmware-core = { workspace = true }
+proto-v2 = { workspace = true }
+heapless = { workspace = true }
+
+[features]
+# Internal gate: the mTLS module (client cert/key from NVS, CN = sensor
+# UUID) lands with the MQTT transport task.
+mtls = []

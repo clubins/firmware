@@ -1,0 +1,10 @@
+[package]
+name = "logging-defmt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Internal gate: the defmt backend wiring lands with the logging task.
+defmt = []

@@ -1,0 +1,11 @@
+# The ESP32-S3 build uses the esp-rs Rust fork pinned in esp-toolchain.nix
+# (1.97.0.0 with the Xtensa backend). This file documents that version for
+# humans; the actual toolchain binaries come from nix-shell (shell.nix), not
+# from rustup — the fork ships no prebuilt std for the target, which is why
+# the Xtensa recipes pass -Zbuild-std=core,alloc.
+#
+# Do not bump this number independently of esp-toolchain.nix: stable rustc
+# breaks esp-hal <= 1.2.2 (global_asm! handling), and the fork version must
+# match the release repackaged there.
+[toolchain]
+channel = "1.97.0.0"

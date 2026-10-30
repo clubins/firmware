@@ -1,0 +1,18 @@
+# ESP32-S3 link recipe — proven in docs/research/firmware-internals-build-and-ci.md.
+#
+# rust-lld is mandatory: the GCC driver cannot link Xtensa relocations
+# ("cross-endian linking ... not supported"). -Tlinkall.x pulls in esp-hal's
+# linker scripts; without it rust-lld fails with R_XTENSA_SLOT0_OP relocation
+# errors.
+#
+# The 1.97.0.0 fork ships no prebuilt std for Xtensa, so core/alloc are built
+# from source. That stays on the command line (-Zbuild-std=core,alloc in the
+# justfile's xtensa recipes) rather than an [unstable] table here, so host
+# builds never pay for rebuilding std.
+#
+# Flags are set per-target, not in [build]: a workspace build uses
+# [target.<triple>] for the ESP image and default flags for host builds and
+# tests.
+[target.xtensa-esp32s3-none-elf]
+linker = "rust-lld"
+rustflags = ["-C", "link-arg=-Tlinkall.x"]

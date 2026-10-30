@@ -1,0 +1,2 @@
+# Formatting is central (monorepo convention): rustfmt edition 2024, 90 cols.
+max_width = 90
