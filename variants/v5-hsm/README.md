@@ -73,7 +73,7 @@ The transitions that matter architecturally:
 
 Capability flags are cargo features — the compile-time half of "a flag in a
 config file". Every public leaf is independent: any combination must compile
-(CI's `flag-matrix` job builds all-off, each leaf alone, and all-on). The
+(`just flag-matrix` builds all-off, each leaf alone, and all-on). The
 internal plumbing flags keep dependency graphs honest and are pulled in by
 the leaves.
 
@@ -170,9 +170,9 @@ under `cfg(target_arch = "xtensa")`.
 - Flag matrix: all-off + each of the 15 leaves alone + all-on compile.
 - Target: release ELF links for `xtensa-esp32s3-none-elf` under the default
   and all-feature sets.
-- CI (`.github/workflows/ci-v5.yml`, GitHub-hosted `ubuntu-latest` + Nix):
-  `check`, `flag-matrix`, and `xtensa` jobs run on every PR touching this
-  variant.
+- No GitHub-hosted CI remains (the repo's workflow files were removed) — run
+  the same gates locally under the Nix shell: `just check`,
+  `just flag-matrix`, and `just build-esp` (default and `--all-features`).
 
 Nothing here touches hardware yet: drivers, real transports, and NVS-backed
 config arrive as downstream PRs against the same flags (the stubs define the
