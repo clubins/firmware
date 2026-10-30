@@ -343,7 +343,12 @@ impl<C: 'static> Hsm<C> {
     /// down the hierarchy. Initial transitions enter child chains without
     /// exiting the just-entered state.
     fn run_init(&mut self, data: &mut C, out: &mut Ctx) {
-        for _ in 0..MAX_HIERARCHY {
+        // `=MAX_HIERARCHY` iterations: a full-depth initial chain takes
+        // MAX_HIERARCHY transitions, and the leaf at MAX_HIERARCHY still
+        // gets its own INIT dispatch in the final iteration (which returns
+        // without transiting). Initial transitions strictly descend, so the
+        // loop can never outlive the tree depth.
+        for _ in 0..=MAX_HIERARCHY {
             let state = self.current;
             let def = &self.table[usize::from(state)];
             let row = def
@@ -848,5 +853,135 @@ mod tests {
             m.start(&mut data, &mut out);
         });
         assert!(result.is_err(), "INIT to a non-child must be rejected");
+    }
+
+    #[test]
+    fn initial_chain_can_reach_the_full_hierarchy_depth() {
+        // A legal table may use every level of MAX_HIERARCHY below the root
+        // (validate_chain admits depth-8 states). Its initial chain takes
+        // MAX_HIERARCHY transitions — root→d1 … d7→d8 — and the depth-8
+        // leaf still gets its own INIT dispatch. start() must complete
+        // instead of tripping the nesting-depth panic.
+        const D1: StateId = 1;
+        const D2: StateId = 2;
+        const D3: StateId = 3;
+        const D4: StateId = 4;
+        const D5: StateId = 5;
+        const D6: StateId = 6;
+        const D7: StateId = 7;
+        const D8: StateId = 8;
+        static DEEP: &[StateDef<TCtx>] = &[
+            StateDef {
+                name: "deep-root",
+                parent: None,
+                entry: None,
+                exit: None,
+                handler: unhandled,
+                transitions: &[TransitionRow {
+                    signal: Signal::INIT,
+                    target: D1,
+                    action: None,
+                }],
+            },
+            StateDef {
+                name: "d1",
+                parent: Some(0),
+                entry: None,
+                exit: None,
+                handler: unhandled,
+                transitions: &[TransitionRow {
+                    signal: Signal::INIT,
+                    target: D2,
+                    action: None,
+                }],
+            },
+            StateDef {
+                name: "d2",
+                parent: Some(D1),
+                entry: None,
+                exit: None,
+                handler: unhandled,
+                transitions: &[TransitionRow {
+                    signal: Signal::INIT,
+                    target: D3,
+                    action: None,
+                }],
+            },
+            StateDef {
+                name: "d3",
+                parent: Some(D2),
+                entry: None,
+                exit: None,
+                handler: unhandled,
+                transitions: &[TransitionRow {
+                    signal: Signal::INIT,
+                    target: D4,
+                    action: None,
+                }],
+            },
+            StateDef {
+                name: "d4",
+                parent: Some(D3),
+                entry: None,
+                exit: None,
+                handler: unhandled,
+                transitions: &[TransitionRow {
+                    signal: Signal::INIT,
+                    target: D5,
+                    action: None,
+                }],
+            },
+            StateDef {
+                name: "d5",
+                parent: Some(D4),
+                entry: None,
+                exit: None,
+                handler: unhandled,
+                transitions: &[TransitionRow {
+                    signal: Signal::INIT,
+                    target: D6,
+                    action: None,
+                }],
+            },
+            StateDef {
+                name: "d6",
+                parent: Some(D5),
+                entry: None,
+                exit: None,
+                handler: unhandled,
+                transitions: &[TransitionRow {
+                    signal: Signal::INIT,
+                    target: D7,
+                    action: None,
+                }],
+            },
+            StateDef {
+                name: "d7",
+                parent: Some(D6),
+                entry: None,
+                exit: None,
+                handler: unhandled,
+                transitions: &[TransitionRow {
+                    signal: Signal::INIT,
+                    target: D8,
+                    action: None,
+                }],
+            },
+            StateDef {
+                name: "d8",
+                parent: Some(D7),
+                entry: None,
+                exit: None,
+                handler: unhandled,
+                transitions: &[],
+            },
+        ];
+        let mut m = Hsm::new(DEEP, 0, 4);
+        let mut data = TCtx::default();
+        let mut sink = |_: Event| {};
+        let mut out = Ctx { post: &mut sink };
+        m.start(&mut data, &mut out);
+        assert!(m.is_in(D8));
+        assert_eq!(m.stats.transitions, 8);
     }
 }

@@ -11,6 +11,12 @@ pub struct Node {
     ticks: u32,
 }
 
+impl Default for Node {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Node {
     pub const fn new() -> Self {
         Self { ticks: 0 }

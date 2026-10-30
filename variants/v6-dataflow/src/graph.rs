@@ -124,11 +124,11 @@ impl Graph {
             #[cfg(feature = "sensor-decibel")]
             decibel: sensors::decibel::Node::new(),
             #[cfg(feature = "sensor-decibel")]
-            decibel_dma: SimulatedDma::new(crate::sensors::decibel::WINDOW_BYTES),
+            decibel_dma: SimulatedDma::i2s_pdm(),
             #[cfg(feature = "sensor-pms5003")]
             pms5003: sensors::pms5003::Node::new(),
             #[cfg(feature = "sensor-pms5003")]
-            pms5003_dma: SimulatedDma::new(crate::sensors::pms5003::FRAME_BYTES),
+            pms5003_dma: SimulatedDma::uart(),
             #[cfg(feature = "sensor-pax")]
             pax: sensors::pax::Node::new(),
             #[cfg(feature = "sensor-pax")]
