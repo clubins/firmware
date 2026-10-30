@@ -11,6 +11,9 @@
 //! - [`registry`] — the feature-gated kinds and their parameter schemas;
 //! - [`graph`] — boot-time validation (kinds, params, refs, cycles, cadences);
 //! - [`engine`] — instantiation and the cadence scheduler;
+//! - [`measurement`] — the typed measurement model a pipeline produces;
+//! - [`http_json`] — the HTTP JSON ingest codec (`transport-http` feature),
+//!   field-exact against the Go ingest structs;
 //! - [`ops`] — flag-gated operations capabilities (OTA, provisioning, …).
 //!
 //! Pure logic throughout: everything here is `no_std`-compatible with
@@ -21,5 +24,11 @@ extern crate alloc;
 pub mod decl;
 pub mod engine;
 pub mod graph;
+pub mod measurement;
 pub mod ops;
 pub mod registry;
+
+/// The HTTP JSON ingest codec — exists only when the device has an HTTP
+/// transport to feed it to.
+#[cfg(feature = "transport-http")]
+pub mod http_json;
