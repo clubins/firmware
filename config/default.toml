@@ -1,0 +1,10 @@
+# Clubins firmware — committed runtime defaults.
+#
+# Placeholder for the configuration PR (docs/plan/build-dag.md), which fills
+# in the schema from spec §The Config File: [sensor] identity, [sampling]
+# cadences and offline buffer, per-driver [sensors.*] addressing, [transport]
+# active selection and endpoints, and [decibel] thresholds/calibration.
+#
+# Precedence is one rule: NVS value → this file → built-in constant.
+# Secrets (Wi-Fi credentials, API key, client certificate and key) live ONLY
+# in NVS and never in this file.

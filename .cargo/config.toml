@@ -1,0 +1,13 @@
+# ESP32-S3 (Xtensa) linking — the exact recipe proven in
+# docs/research/firmware-internals-build-and-ci.md:
+#
+#   rust-lld      the GCC driver fails cross-endian linking for Xtensa
+#   -Tlinkall.x   esp-hal's linker scripts; rust-lld without them fails with
+#                 "relocation R_XTENSA_SLOT0_OP out of range"
+#
+# The section is scoped to the Xtensa target, so host builds and `cargo test`
+# are unaffected. `-Zbuild-std=core` stays on the command line (justfile, CI)
+# because the pinned fork ships no prebuilt rust-std for the target.
+[target.xtensa-esp32s3-none-elf]
+linker = "rust-lld"
+rustflags = ["-C", "link-arg=-Tlinkall.x"]

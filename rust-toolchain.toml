@@ -1,0 +1,10 @@
+# The Xtensa ESP toolchain is NOT installable via rustup — the esp-rs fork
+# (1.97.0.0) is provided by the Nix shell (esp-toolchain.nix). Inside
+# `nix-shell` the fork's cargo runs directly and never consults this file
+# (toolchain files are a rustup feature). Outside the shell, this pin makes
+# rustup fail loudly instead of silently building with an incompatible stable
+# rustc — stable >= 1.99 breaks esp-hal <= 1.2.2 (global_asm! ordering), see
+# docs/research/firmware-internals-build-and-ci.md.
+[toolchain]
+channel = "1.97.0.0"
+targets = ["xtensa-esp32s3-none-elf"]
