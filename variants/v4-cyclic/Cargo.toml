@@ -1,0 +1,68 @@
+[package]
+name = "v4-cyclic"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "V4 — time-triggered cyclic executive firmware for the Clubins ESP32-S3 sensor"
+
+[lib]
+name = "v4_cyclic"
+path = "src/lib.rs"
+
+[[bin]]
+name = "v4-cyclic"
+path = "src/main.rs"
+
+# --- Capability flags -------------------------------------------------------
+#
+# Every capability is a leaf flag with no hidden coupling; any combination must
+# compile (CI proves it: `just flag-matrix`). The defaults match what the ingest
+# server can receive today. Internal plumbing flags exist so dependency graphs
+# stay honest and are not part of the public feature matrix.
+[features]
+default = ["sensor-decibel", "transport-http", "ops-status"]
+
+# Sensors — each enables its driver and registry arm. any-sensor is internal:
+# it aggregates the sensor flags so all-off builds can gate driver-facing glue
+# (the Sensor trait import, init dispatch) without naming all seven flags.
+sensor-decibel = ["any-sensor"]           # SPK0641HT4H-1 PDM mic, I2S0 @ 48 kHz
+sensor-pax = ["driver-gpio", "any-sensor"]              # occupancy front-end (PIR)
+sensor-bme280 = ["driver-i2c", "any-sensor"]            # temperature + humidity + pressure
+sensor-sht4x = ["driver-i2c", "any-sensor"]             # temperature + humidity
+sensor-scd4x = ["driver-i2c", "any-sensor"]             # CO2
+sensor-pms5003 = ["driver-uart", "any-sensor"]          # PM2.5 particulates
+sensor-bh1750 = ["driver-i2c", "any-sensor"]            # ambient light
+
+# Transports — config selects the active one at runtime.
+transport-http = ["net-wifi"]             # working JSON ingest
+transport-mqtt = ["net-wifi", "proto-v2"] # MQTT v2 protobuf contract
+transport-mtls = ["transport-mqtt"]       # client certs from NVS
+
+# Ops.
+ota = []                                  # esp-ota update handling
+provisioning = ["net-wifi"]               # BLE Wi-Fi credential provisioning
+deep-sleep = []                           # duty-cycled sampling between sleeps
+logging-defmt = []                        # defmt logging transport
+ops-status = []                           # status heartbeat + boot lifecycle
+
+# Internal plumbing — dependency-graph honesty only.
+driver-i2c = []
+driver-uart = []
+driver-gpio = []
+net-wifi = []
+proto-v2 = []
+any-sensor = []
+
+# Host builds compile pure logic only: hardware-bound code is target-gated so
+# the host stays fast and flag builds stay honest about what pulls in hardware
+# code. heapless is the one dependency — no_std, no alloc, host-testable.
+[dependencies]
+heapless = { version = "0.9", default-features = false }
+
+[target.'cfg(target_arch = "xtensa")'.dependencies]
+esp-hal = { version = "=1.2.2", features = ["esp32s3"] }
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
