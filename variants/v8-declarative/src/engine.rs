@@ -198,3 +198,431 @@ impl Engine {
         }
     }
 }
+
+#[cfg(test)]
+// Kind coverage follows the same per-test gating note as graph::tests:
+// tests naming clock/http kinds are gated to the default feature set.
+mod tests {
+    use super::*;
+
+    /// Parse + instantiate; panic with the display error if invalid.
+    fn engine(src: &str) -> Engine {
+        let doc = Pipelines::parse(src).expect("test document parses");
+        Engine::instantiate(&doc).expect("test document is valid")
+    }
+
+    #[test]
+    #[cfg(all(
+        feature = "sensor-decibel",
+        feature = "transport-http",
+        feature = "ops-status"
+    ))]
+    fn instantiates_the_default_document_in_dependency_order() {
+        // The committed config instantiates under the default feature set
+        // (sensor-decibel, transport-http, ops-status): a decibel chain, the
+        // clock-fed status heartbeat, and the decibel chain's hourly pipe-fed
+        // rollup.
+        let doc = Pipelines::parse(include_str!("../config/pipelines.toml"))
+            .expect("committed pipelines.toml parses");
+        let engine =
+            Engine::instantiate(&doc).expect("committed pipelines.toml is valid");
+        let schedule = engine.schedule();
+        assert!(engine.len() >= 3);
+        let leq_pos = schedule
+            .iter()
+            .position(|(n, _)| *n == "decibel-leq")
+            .expect("decibel-leq in the default document");
+        let hourly_pos = schedule
+            .iter()
+            .position(|(n, _)| *n == "decibel-hourly")
+            .expect("decibel-hourly in the default document");
+        assert!(
+            leq_pos < hourly_pos,
+            "an upstream must precede its pipe consumers"
+        );
+        // Freshly built runs: nothing executed yet, nothing dropped.
+        assert_eq!(engine.delivered("status"), Some(0));
+        assert_eq!(engine.delivered("decibel-leq"), Some(0));
+        assert_eq!(engine.outbox_dropped("decibel-leq"), Some(0));
+    }
+
+    #[test]
+    #[cfg(all(feature = "sensor-decibel", feature = "transport-http"))]
+    fn cadence_resolution_fires_pipelines_on_their_beats() {
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "fast"
+            source = { kind = "pipe", pipeline = "base", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "decibel"
+
+            [[pipeline]]
+            name = "slow"
+            source = { kind = "pipe", pipeline = "base", cadence_ms = 2000 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "decibel"
+
+            [[pipeline]]
+            name = "base"
+            source = { kind = "decibel", cadence_ms = 500 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "decibel"
+            "#,
+        );
+
+        // Dependency order first: base (500) → fast (1000) → slow (2000).
+        assert_eq!(
+            engine.schedule(),
+            [("base", 500), ("fast", 1000), ("slow", 2000)]
+        );
+
+        assert_eq!(engine.tick(0), ["base", "fast", "slow"]);
+        assert_eq!(engine.tick(499), Vec::<&str>::new());
+        assert_eq!(engine.tick(500), ["base"]);
+        assert_eq!(engine.tick(999), Vec::<&str>::new());
+        assert_eq!(engine.tick(1000), ["base", "fast"]);
+        assert_eq!(engine.tick(1500), ["base"]);
+        assert_eq!(engine.tick(2000), ["base", "fast", "slow"]);
+        assert_eq!(engine.tick(2001), Vec::<&str>::new());
+    }
+
+    #[test]
+    #[cfg(all(feature = "sensor-decibel", feature = "transport-http"))]
+    fn slow_consumers_catch_up_without_bursting() {
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "base"
+            source = { kind = "decibel", cadence_ms = 100 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "decibel"
+
+            [[pipeline]]
+            name = "hourly"
+            source = { kind = "pipe", pipeline = "base", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "decibel"
+            "#,
+        );
+        assert_eq!(engine.tick(0), ["base", "hourly"]);
+        // Jump far past several beats: the engine reports each pipeline once
+        // and reschedules on its original cadence grid, strictly in the future.
+        assert_eq!(engine.tick(10_000), ["base", "hourly"]);
+        // base's grid: 100 ms steps from 10_100; hourly's: 1000 ms from 11_000.
+        assert_eq!(engine.tick(10_050), Vec::<&str>::new());
+        assert_eq!(engine.tick(10_099), Vec::<&str>::new());
+        assert_eq!(engine.tick(10_100), ["base"]);
+        assert_eq!(engine.tick(11_000), ["base", "hourly"]);
+    }
+
+    #[test]
+    #[cfg(not(feature = "sensor-bh1750"))]
+    fn a_config_edit_cannot_enable_an_uncompiled_kind() {
+        // sensor-bh1750 is not in the default set: a pipeline that names it
+        // must fail instantiation even though the TOML is well-formed.
+        let doc = Pipelines::parse(
+            r#"
+            [[pipeline]]
+            name = "lux"
+            source = { kind = "bh1750", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "light"
+            "#,
+        )
+        .expect("parses");
+        let err = Engine::instantiate(&doc).expect_err("kind is not compiled in");
+        assert!(
+            matches!(err, GraphError::UnknownSourceKind { kind, .. } if kind == "bh1750")
+        );
+    }
+
+    #[test]
+    #[cfg(all(feature = "sensor-decibel", feature = "transport-http"))]
+    fn flag_gated_kind_instantiates_when_compiled() {
+        // The mirror image, under the default set: the decibel kind exists,
+        // so the same shape of pipeline instantiates cleanly.
+        let doc = Pipelines::parse(
+            r#"
+            [[pipeline]]
+            name = "db"
+            source = { kind = "decibel", cadence_ms = 1000 }
+            [[pipeline.stages]]
+            kind = "a-weight"
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "decibel"
+            "#,
+        )
+        .expect("parses");
+        let engine = Engine::instantiate(&doc).expect("decibel is compiled in");
+        assert_eq!(engine.schedule(), [("db", 1000)]);
+    }
+
+    #[test]
+    fn mtls_gate_is_enforced_through_validation() {
+        // tls defaults to true: an mqtt-ingest sink without the
+        // transport-mtls flag compiled in cannot validate. In worlds where
+        // transport-mqtt itself is off, the sink kind is unknown instead.
+        // The pipe source exists in every feature world, so the sink verdict
+        // is the first error in all of them; "base" exists so the all-on
+        // world passes reference and cadence checks and validates cleanly.
+        let doc = Pipelines::parse(
+            r#"
+            [[pipeline]]
+            name = "db"
+            source = { kind = "pipe", pipeline = "base", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "mqtt-ingest"
+            type = "decibel"
+
+            [[pipeline]]
+            name = "base"
+            source = { kind = "decibel", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "decibel"
+            "#,
+        )
+        .expect("parses");
+        let result = Engine::instantiate(&doc);
+        if cfg!(feature = "transport-mqtt") {
+            if cfg!(feature = "transport-mtls") {
+                result.expect("mTLS compiled in");
+            } else {
+                assert!(matches!(result, Err(GraphError::BadParam { .. })));
+            }
+        } else {
+            assert!(matches!(
+                result,
+                Err(GraphError::UnknownSinkKind { kind, .. }) if kind == "mqtt-ingest"
+            ));
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "transport-http")]
+    fn cyclic_declarations_fail_the_boot() {
+        let doc = Pipelines::parse(
+            r#"
+            [[pipeline]]
+            name = "a"
+            source = { kind = "pipe", pipeline = "b", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "decibel"
+
+            [[pipeline]]
+            name = "b"
+            source = { kind = "pipe", pipeline = "a", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "decibel"
+            "#,
+        )
+        .expect("parses");
+        assert!(matches!(
+            Engine::instantiate(&doc),
+            Err(GraphError::Cycle(_))
+        ));
+    }
+
+    // ---- execution (runtime) behaviour, default feature world ----
+
+    #[test]
+    #[cfg(all(feature = "ops-status", feature = "transport-http"))]
+    fn clock_pipeline_delivers_heartbeats_and_counts_them() {
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "hb"
+            source = { kind = "clock", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "status-heartbeat"
+            "#,
+        );
+        assert_eq!(engine.tick(0), ["hb"]); // beat 1
+        assert_eq!(engine.tick(999), Vec::<&str>::new());
+        assert_eq!(engine.tick(1000), ["hb"]); // beat 2
+        assert_eq!(engine.delivered("hb"), Some(2));
+        assert_eq!(engine.dropped("hb"), Some(0));
+        match engine.last_delivered("hb") {
+            Some(Measurement::Status(report)) => {
+                assert_eq!(report.message.as_deref(), Some("beat 2"))
+            }
+            other => panic!("expected the second heartbeat, got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[cfg(all(feature = "ops-status", feature = "transport-http"))]
+    fn pipe_consumer_drains_its_upstreams_stream() {
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "producer"
+            source = { kind = "clock", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "status-heartbeat"
+
+            [[pipeline]]
+            name = "consumer"
+            source = { kind = "pipe", pipeline = "producer", cadence_ms = 2000 }
+            [pipeline.sink]
+            kind = "status-heartbeat"
+            "#,
+        );
+        // The consumer accepts status (heartbeat) — `status` is deliberately
+        // not a measurement type in the registry, so `http-ingest` cannot
+        // declare it and the retained status sink is the status destination.
+        // Beat 0: producer emits "beat 1", consumer drains it in the same
+        // tick (dependency order), so both sinks see one delivery.
+        assert_eq!(engine.tick(0), ["producer", "consumer"]);
+        assert_eq!(engine.delivered("producer"), Some(1));
+        assert_eq!(engine.delivered("consumer"), Some(1));
+        // Producer fires alone at 1000 ms: "beat 2" waits in its stream.
+        assert_eq!(engine.tick(1000), ["producer"]);
+        assert_eq!(engine.delivered("producer"), Some(2));
+        assert_eq!(engine.delivered("consumer"), Some(1));
+        // Consumer's beat: the backlog ("beat 2" from 1000 ms plus "beat 3"
+        // just produced) drains in one run, in order.
+        assert_eq!(engine.tick(2000), ["producer", "consumer"]);
+        assert_eq!(engine.delivered("consumer"), Some(3));
+        assert_eq!(engine.outbox_dropped("producer"), Some(0));
+        match engine.last_delivered("consumer") {
+            Some(Measurement::Status(report)) => {
+                assert_eq!(report.message.as_deref(), Some("beat 3"))
+            }
+            other => panic!("expected the drained heartbeat, got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[cfg(all(feature = "ops-status", feature = "transport-http"))]
+    fn aggregate_stage_gates_until_the_window_is_full() {
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "agg"
+            source = { kind = "clock", cadence_ms = 1000 }
+            [[pipeline.stages]]
+            kind = "aggregate"
+            window_s = 3
+            [pipeline.sink]
+            kind = "status-heartbeat"
+            "#,
+        );
+        // window_s 3 at a 1000 ms cadence → one emission per 3 beats: the
+        // stage holds the window's latest sample and releases it at the
+        // boundary.
+        assert_eq!(engine.tick(0), ["agg"]); // 1/3
+        assert_eq!(engine.tick(1000), ["agg"]); // 2/3
+        assert_eq!(engine.delivered("agg"), Some(0));
+        assert_eq!(engine.tick(2000), ["agg"]); // 3/3 → one sample out
+        assert_eq!(engine.delivered("agg"), Some(1));
+        assert_eq!(engine.tick(3000), ["agg"]); // 1/3
+        assert_eq!(engine.delivered("agg"), Some(1));
+        assert_eq!(engine.tick(4000), ["agg"]); // 2/3
+        assert_eq!(engine.tick(5000), ["agg"]); // 3/3 → second out
+        assert_eq!(engine.delivered("agg"), Some(2));
+    }
+
+    #[test]
+    #[cfg(all(feature = "ops-status", feature = "transport-http"))]
+    fn throttle_stage_passes_one_sample_per_interval() {
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "thr"
+            source = { kind = "clock", cadence_ms = 1000 }
+            [[pipeline.stages]]
+            kind = "throttle"
+            every = 10
+            [pipeline.sink]
+            kind = "status-heartbeat"
+            "#,
+        );
+        // The throttle counts samples, not wall time: the first passes, the
+        // next nine are suppressed, then the eleventh passes.
+        for ms in (0..=9_000).step_by(1000) {
+            assert_eq!(engine.tick(ms), ["thr"]);
+        }
+        assert_eq!(engine.delivered("thr"), Some(1));
+        assert_eq!(engine.tick(10_000), ["thr"]); // sample 11 passes
+        assert_eq!(engine.delivered("thr"), Some(2));
+        assert_eq!(engine.tick(11_000), ["thr"]); // suppressed again
+        assert_eq!(engine.delivered("thr"), Some(2));
+    }
+
+    #[test]
+    #[cfg(all(feature = "ops-status", feature = "transport-http"))]
+    fn sink_type_guard_drops_other_types_and_counts_them() {
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "guarded"
+            source = { kind = "clock", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "weather"
+            "#,
+        );
+        // Heartbeats are status measurements; a weather-declared sink must
+        // never accept one — and must never do so silently.
+        assert_eq!(engine.tick(0), ["guarded"]);
+        assert_eq!(engine.tick(1000), ["guarded"]);
+        assert_eq!(engine.delivered("guarded"), Some(0));
+        assert_eq!(engine.dropped("guarded"), Some(2));
+        assert!(engine.last_delivered("guarded").is_none());
+    }
+
+    #[test]
+    #[cfg(all(feature = "ops-status", feature = "transport-http"))]
+    fn outbox_cap_drops_the_oldest_samples_and_counts_them() {
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "solo"
+            source = { kind = "clock", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "status-heartbeat"
+            "#,
+        );
+        // 71 beats with no pipe consumer: the newest 64 stay buffered, the
+        // oldest 7 are dropped — counted, never silent.
+        for ms in (0..=70_000).step_by(1000) {
+            engine.tick(ms);
+        }
+        assert_eq!(engine.outbox_dropped("solo"), Some(7));
+    }
+
+    #[test]
+    #[cfg(all(feature = "sensor-decibel", feature = "transport-http"))]
+    fn pending_hardware_source_produces_nothing() {
+        // The decibel driver PR has not landed: the pipeline schedules and
+        // executes, but its source is Pending — no samples, no deliveries,
+        // no invented data.
+        let mut engine = engine(
+            r#"
+            [[pipeline]]
+            name = "db"
+            source = { kind = "decibel", cadence_ms = 1000 }
+            [pipeline.sink]
+            kind = "http-ingest"
+            type = "decibel"
+            "#,
+        );
+        for ms in (0..=5000).step_by(1000) {
+            assert_eq!(engine.tick(ms), ["db"]);
+        }
+        assert_eq!(engine.delivered("db"), Some(0));
+        assert_eq!(engine.dropped("db"), Some(0));
+        assert!(engine.last_delivered("db").is_none());
+    }
+}

@@ -401,3 +401,33 @@ fn build_sink(kind: SinkKind, params: &Params) -> SinkExec {
         },
     }
 }
+
+#[cfg(test)]
+// Execution-state unit tests that need no kind-specific features (the
+// throttle stage is plumbing; `light` measurements are base-model).
+// Kind-shaped behaviour is exercised end-to-end by engine::tests.
+mod tests {
+    use super::*;
+
+    #[test]
+    fn throttle_passes_the_first_sample_then_every_nth_thereafter() {
+        // Sample-count semantics: no wall clock involved — the stage cannot
+        // drift from the engine's scheduler, it simply counts what it sees.
+        let mut throttle = StageExec::Throttle { every: 3, seen: 0 };
+        let sample = || Measurement::light(42.0).expect("finite lux");
+        assert!(throttle.apply(sample()).is_some(), "sample 1 passes");
+        assert!(throttle.apply(sample()).is_none(), "sample 2 suppressed");
+        assert!(throttle.apply(sample()).is_none(), "sample 3 suppressed");
+        assert!(throttle.apply(sample()).is_some(), "sample 4 passes");
+        assert!(throttle.apply(sample()).is_none(), "sample 5 suppressed");
+    }
+
+    #[test]
+    fn throttle_every_one_passes_every_sample() {
+        let mut throttle = StageExec::Throttle { every: 1, seen: 0 };
+        for i in 0..10 {
+            let m = Measurement::light(1.0).expect("finite lux");
+            assert!(throttle.apply(m).is_some(), "every=1 passes sample {i}");
+        }
+    }
+}
