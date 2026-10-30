@@ -17,8 +17,8 @@ replace it — never a `// TODO` in the dispatch path.
 ## ESP-IDF pin
 
 **ESP-IDF v5.5.6** — the stable 5.x release, pinned across all `variants-c/`
-variants. Recorded here and in the CI workflow (the same
-`espressif/esp-idf-ci-action` version input).
+variants. Recorded here; local `idf.py` builds must use this exact version
+(there is no GitHub-hosted CI to enforce it).
 
 ## Layout
 
@@ -30,7 +30,7 @@ variants-c/flags/
 ├── Kconfig.projbuild         15 public capability flags + 5 plumbing flags
 ├── sdkconfig.defaults        base device defaults (all-off capabilities)
 ├── sdkconfig.defaults.all-features
-│                             all-15 anchor for the device CI job
+│                             all-15 anchor for all-features device builds
 ├── main/
 │   ├── CMakeLists.txt        registers the main component
 │   ├── idf_component.yml     (empty requirements; explicit for reviewers)
@@ -93,8 +93,9 @@ dependencies.
 
 Defaults are **all-off** — the C mirror of V1's `default = []`: a bare
 build is the framework itself. The all-15 anchor lives in
-`sdkconfig.defaults.all-features` and is what the device CI job builds
-second. A hardware watchdog, once the ops task lands, will run
+`sdkconfig.defaults.all-features` and is what the all-features device build
+uses (`tools/flag-matrix.sh --device` runs it). A hardware watchdog, once the
+ops task lands, will run
 unconditionally (safety property, not a flag) — the C1 equivalent of V1's
 decision.
 
@@ -139,8 +140,8 @@ only ever in NVS. The committed defaults land with the config task.
 | Ingest conformance | `ctest --test-dir build/host -R ingest_conformance` | every HTTP body decodes and re-encodes byte-exact against the wire fixtures; server-400 shapes rejected |
 | Flag matrix (host) | same | all-off, each leaf alone (+ its Kconfig selects), all-on |
 | Device build (default) | `idf.py build` | the ESP32-S3 app links with capabilities off |
-| Device build (all features) | `tools/flag-matrix.sh --device` or the CI job | the ESP32-S3 app links with all 15 on |
-| Format | `clang-format --dry-run -Werror` (CI) | tree is format-clean |
+| Device build (all features) | `tools/flag-matrix.sh --device` | the ESP32-S3 app links with all 15 on |
+| Format | `clang-format --dry-run -Werror` | tree is format-clean |
 
 The flag-framework test suite is the port of V1's
 `tests/flag_framework.rs`: `feature_flag_resolution` (the registry must
@@ -168,9 +169,10 @@ idf.py -B build.default set-target esp32s3 build
 tools/flag-matrix.sh --device
 ```
 
-CI (`.github/workflows/ci-c1.yml`, GitHub-hosted `ubuntu-latest`) runs the
-format check, the full host matrix, and two `espressif/esp-idf-ci-action`
-builds (default + all-features) against ESP-IDF v5.5.6.
+There is no GitHub-hosted CI — the repo's workflow files were removed. Run
+the same gates locally: the format check, the full host matrix
+(`tools/flag-matrix.sh`), and device builds (default + all-features) against
+ESP-IDF v5.5.6 (`tools/flag-matrix.sh --device`).
 
 ## V1 → C1 porting map
 

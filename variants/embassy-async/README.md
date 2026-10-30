@@ -122,22 +122,22 @@ just xtensa --all-features
 
 Or directly: `nix-shell --pure --run 'just check'`.
 
-The toolchain (`shell.nix` + `esp-toolchain.nix`) pins the CI-exact stack:
+The toolchain (`shell.nix` + `esp-toolchain.nix`) pins the exact stack:
 Rust fork 1.97.0.0, Xtensa GCC 15.2.0. The link recipe is `rust-lld` +
 `-Tlinkall.x` (`-Zbuild-std=core` via `CARGO_UNSTABLE_BUILD_STD`); the GCC
 driver cannot link the cross-endian ELF, and missing esp-hal linker scripts
 fail on `R_XTENSA_SLOT0_OP` relocations. There is deliberately **no**
 `rust-toolchain.toml` — the Nix shell is the toolchain manager.
 
-## CI
+## Verification
 
-`.github/workflows/ci-v3.yml` (this variant's own workflow — the repo has no
-self-hosted runner):
+No GitHub-hosted CI remains (the repo's workflow files were removed) — run
+the gates locally:
 
 - **host check** — `just check` (fmt, clippy `-D warnings`, build, test).
 - **flag matrix** — `just flag-matrix` (17 host builds).
-- **xtensa** — release ELF for default and all-features, uploaded as
-  artifacts.
+- **xtensa** — `just xtensa` release ELF for default and all-features
+  (pass `"--all-features"` through).
 
 ## Scaffold status
 
@@ -155,6 +155,6 @@ flashed in this build.
 
 ## Isolation rules
 
-All toolchain files live inside this directory (nothing at repo root); CI and
-builds run from here. This variant never touches the repo-root crate (V1),
+All toolchain files live inside this directory (nothing at repo root); builds
+run from here. This variant never touches the repo-root crate (V1),
 `variants/workspace/` (V2), or `docs/`.

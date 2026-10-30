@@ -2,9 +2,13 @@
 //!
 //! SCAFFOLD STATUS: each task owns its cadence and its channel endpoint; the
 //! drivers, DSP and encoders behind them arrive in their own flag-scoped
-//! tasks. Skeletons never fabricate measurements — the only real events so
-//! far are the ops-status boot report and heartbeat, which are contract-real
-//! from the first boot (`service/status.go`).
+//! tasks. Sensor tasks already run the real sensor task framework
+//! (`clubins_firmware_v3::sensor`): a `SkeletonDriver` reports a hardware
+//! fault instead of fabricating measurements, and the framework's backoff
+//! keeps the task asleep-but-alive until the real driver replaces it —
+//! so the skeleton exercises the isolation path, not a fake cadence.
+//! The only real events so far are the ops-status boot report and heartbeat,
+//! which are contract-real from the first boot (`service/status.go`).
 //!
 //! The transport skeleton drains both queues with a select; when both
 //! transports are compiled, exactly one runs (per
@@ -19,72 +23,147 @@ use clubins_firmware_v3::channels::{
     MeasurementReceiver, MeasurementSender, StatusReceiver, StatusSender,
 };
 use clubins_firmware_v3::config;
-use clubins_firmware_v3::events::{StatusEvent, StatusResult};
+use clubins_firmware_v3::events::{MeasurementPayload, StatusEvent, StatusResult};
+use clubins_firmware_v3::sensor::{
+    SensorDriver, SensorError, SensorFault, SensorTaskParams, Sleep,
+};
 use clubins_firmware_v3::session::Sequencer;
+
+// ---- sensor task framework glue --------------------------------------------
+
+/// The device-side [`Sleep`](clubins_firmware_v3::sensor::Sleep) adapter:
+/// embassy-time sleeps, driven by the esp-hal timers through esp-rtos.
+struct EmbassyClock;
+
+impl Sleep for EmbassyClock {
+    async fn sleep(&mut self, ms: u64) {
+        Timer::after(Duration::from_millis(ms)).await;
+    }
+}
+
+/// Placeholder driver for a sensor whose real driver lands with its own
+/// task. It never fabricates a measurement: init fails with a hardware
+/// fault, the framework backs off, and the task retries — the honest
+/// "not landed yet" state.
+struct SkeletonDriver {
+    name: &'static str,
+    note: &'static str,
+    announced: bool,
+}
+
+impl SkeletonDriver {
+    fn new(name: &'static str, note: &'static str) -> Self {
+        Self {
+            name,
+            note,
+            announced: false,
+        }
+    }
+
+    fn not_yet(&mut self) -> SensorError {
+        if !self.announced {
+            self.announced = true;
+            println!("{}: no driver yet — {}; backing off", self.name, self.note);
+        }
+        SensorError::new(SensorFault::Hardware, 0)
+    }
+}
+
+impl SensorDriver for SkeletonDriver {
+    async fn init(&mut self) -> Result<(), SensorError> {
+        Err(self.not_yet())
+    }
+
+    async fn calibrate(&mut self) -> Result<(), SensorError> {
+        Err(self.not_yet())
+    }
+
+    async fn sample(&mut self) -> Result<MeasurementPayload, SensorError> {
+        Err(self.not_yet())
+    }
+}
 
 // ---- sensors ---------------------------------------------------------------
 
 #[cfg(feature = "sensor-decibel")]
 #[embassy_executor::task]
-pub(super) async fn decibel_sensor_task(_measurements: MeasurementSender<'static>) {
-    println!("decibel-sensor: skeleton; PDM capture + DSP arrive with the decibel task");
-    loop {
-        Timer::after(Duration::from_millis(config::SENSOR_POLL_INTERVAL_MS)).await;
-    }
+pub(super) async fn decibel_sensor_task(mut measurements: MeasurementSender<'static>) {
+    let mut driver = SkeletonDriver::new(
+        "decibel-sensor",
+        "PDM capture + DSP arrive with the decibel task",
+    );
+    let mut clock = EmbassyClock;
+    let params = SensorTaskParams::built_in();
+    clubins_firmware_v3::sensor::run(&mut driver, &mut clock, &mut measurements, &params)
+        .await;
 }
 
 #[cfg(feature = "sensor-pax")]
 #[embassy_executor::task]
-pub(super) async fn pax_sensor_task(_measurements: MeasurementSender<'static>) {
-    println!("pax-sensor: skeleton; GPIO PIR front-end arrives with the pax task");
-    loop {
-        Timer::after(Duration::from_millis(config::SENSOR_POLL_INTERVAL_MS)).await;
-    }
+pub(super) async fn pax_sensor_task(mut measurements: MeasurementSender<'static>) {
+    let mut driver =
+        SkeletonDriver::new("pax-sensor", "GPIO PIR front-end arrives with the pax task");
+    let mut clock = EmbassyClock;
+    let params = SensorTaskParams::built_in();
+    clubins_firmware_v3::sensor::run(&mut driver, &mut clock, &mut measurements, &params)
+        .await;
 }
 
 #[cfg(feature = "sensor-bme280")]
 #[embassy_executor::task]
-pub(super) async fn bme280_sensor_task(_measurements: MeasurementSender<'static>) {
-    println!("bme280-sensor: skeleton; I2C driver arrives with the bme280 task");
-    loop {
-        Timer::after(Duration::from_millis(config::SENSOR_POLL_INTERVAL_MS)).await;
-    }
+pub(super) async fn bme280_sensor_task(mut measurements: MeasurementSender<'static>) {
+    let mut driver =
+        SkeletonDriver::new("bme280-sensor", "I2C driver arrives with the bme280 task");
+    let mut clock = EmbassyClock;
+    let params = SensorTaskParams::built_in();
+    clubins_firmware_v3::sensor::run(&mut driver, &mut clock, &mut measurements, &params)
+        .await;
 }
 
 #[cfg(feature = "sensor-sht4x")]
 #[embassy_executor::task]
-pub(super) async fn sht4x_sensor_task(_measurements: MeasurementSender<'static>) {
-    println!("sht4x-sensor: skeleton; I2C driver arrives with the sht4x task");
-    loop {
-        Timer::after(Duration::from_millis(config::SENSOR_POLL_INTERVAL_MS)).await;
-    }
+pub(super) async fn sht4x_sensor_task(mut measurements: MeasurementSender<'static>) {
+    let mut driver =
+        SkeletonDriver::new("sht4x-sensor", "I2C driver arrives with the sht4x task");
+    let mut clock = EmbassyClock;
+    let params = SensorTaskParams::built_in();
+    clubins_firmware_v3::sensor::run(&mut driver, &mut clock, &mut measurements, &params)
+        .await;
 }
 
 #[cfg(feature = "sensor-scd4x")]
 #[embassy_executor::task]
-pub(super) async fn scd4x_sensor_task(_measurements: MeasurementSender<'static>) {
-    println!("scd4x-sensor: skeleton; I2C driver arrives with the scd4x task");
-    loop {
-        Timer::after(Duration::from_millis(config::SENSOR_POLL_INTERVAL_MS)).await;
-    }
+pub(super) async fn scd4x_sensor_task(mut measurements: MeasurementSender<'static>) {
+    let mut driver =
+        SkeletonDriver::new("scd4x-sensor", "I2C driver arrives with the scd4x task");
+    let mut clock = EmbassyClock;
+    let params = SensorTaskParams::built_in();
+    clubins_firmware_v3::sensor::run(&mut driver, &mut clock, &mut measurements, &params)
+        .await;
 }
 
 #[cfg(feature = "sensor-pms5003")]
 #[embassy_executor::task]
-pub(super) async fn pms5003_sensor_task(_measurements: MeasurementSender<'static>) {
-    println!("pms5003-sensor: skeleton; UART driver arrives with the pms5003 task");
-    loop {
-        Timer::after(Duration::from_millis(config::SENSOR_POLL_INTERVAL_MS)).await;
-    }
+pub(super) async fn pms5003_sensor_task(mut measurements: MeasurementSender<'static>) {
+    let mut driver = SkeletonDriver::new(
+        "pms5003-sensor",
+        "UART driver arrives with the pms5003 task",
+    );
+    let mut clock = EmbassyClock;
+    let params = SensorTaskParams::built_in();
+    clubins_firmware_v3::sensor::run(&mut driver, &mut clock, &mut measurements, &params)
+        .await;
 }
 
 #[cfg(feature = "sensor-bh1750")]
 #[embassy_executor::task]
-pub(super) async fn bh1750_sensor_task(_measurements: MeasurementSender<'static>) {
-    println!("bh1750-sensor: skeleton; I2C driver arrives with the bh1750 task");
-    loop {
-        Timer::after(Duration::from_millis(config::SENSOR_POLL_INTERVAL_MS)).await;
-    }
+pub(super) async fn bh1750_sensor_task(mut measurements: MeasurementSender<'static>) {
+    let mut driver =
+        SkeletonDriver::new("bh1750-sensor", "I2C driver arrives with the bh1750 task");
+    let mut clock = EmbassyClock;
+    let params = SensorTaskParams::built_in();
+    clubins_firmware_v3::sensor::run(&mut driver, &mut clock, &mut measurements, &params)
+        .await;
 }
 
 // ---- ops -------------------------------------------------------------------

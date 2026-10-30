@@ -8,9 +8,9 @@ retuning a sensor is a TOML edit, not a recompile. Cargo features gate which
 kinds exist; runtime TOML gates which instances run.
 
 Self-contained like every variant: all toolchain files live in this directory
-and CI runs from here (`nix-shell --pure --run 'just check'`). The repo root
-hosts no toolchain for V8 and this crate never touches the root crate, other
-variants, or `docs/`.
+and builds run from here (`nix-shell --pure --run 'just check'`). The repo
+root hosts no toolchain for V8 and this crate never touches the root crate,
+other variants, or `docs/`.
 
 ## Architecture map
 
@@ -23,11 +23,18 @@ config/pipelines.toml ──include_str!──▶ decl.rs (std-free TOML parse)
               (cfg-gated arms per kind)        cycles, cadence multiples
                                              │ Vec<Instance> (topo order)
                                              ▼
-                      engine.rs ── Engine::tick(now_ms)
-                      cadence scheduler: due pipelines, in dependency order
+                      runtime.rs ── build execution state per instance:
+                      closed-enum source/stage/sink executors over the kinds;
+                      per-pipeline finished-stream buffers (pipe taps)
                                              │
                                              ▼
-                      main.rs (device) / cargo run (host prints schedule)
+                      engine.rs ── Engine::tick(now_ms)
+                      cadence scheduler + executor: due pipelines run
+                      source → stages → sink, upstreams before consumers
+                                             │
+                                             ▼
+                      main.rs (device) / cargo run (host simulates a
+                      horizon and reports deliveries)
 ```
 
 Modules:
@@ -42,16 +49,23 @@ Modules:
   parameter typing (typos become named errors), `pipe` reference existence,
   acyclicity, and cadence multiples (`pipe` consumers must not tick faster
   than their producer). Produces instances in topological order.
+- **`runtime.rs`** — execution state per instance: closed-enum executors
+  built through the registry (`pipe` draining, clock heartbeats,
+  windowing, throttling, type-guarded sinks) and the per-pipeline finished
+  streams `pipe` consumers tap. Hardware sources are `Pending` and
+  capability stages identity pass-throughs until their driver PRs land.
 - **`engine.rs`** — the interpreter: `Engine::instantiate` (validate →
-  instances) and `Engine::tick` (cadence scheduler; slow consumers catch up
-  on their original grid without bursting).
+  build runs → wire `pipe` edges) and `Engine::tick` (cadence scheduler +
+  executor; slow consumers catch up on their original grid without
+  bursting). Reports per-pipeline deliveries, sink drops, and outbox
+  drops.
 - **`ops/`** — flag-gated operations stubs (OTA state machine, BLE
   provisioning visibility, deep-sleep budget, defmt level filter).
 
 Stage behaviours (I2S PDM capture, weighting filters, I2C/UART buses,
-Wi-Fi, transports) are the downstream driver PRs; the scaffold proves the
-graph mechanics, gating, and failure modes host-side, and that the Xtensa
-personality links.
+Wi-Fi, transports) are the downstream driver PRs; the mechanism proves the
+full interpreter — parse, validate, instantiate, wire, execute — host-side,
+with plumbing kinds fully real, and that the Xtensa personality links.
 
 ## Flag matrix
 
@@ -92,11 +106,11 @@ type = "pax"
 
 # needs transport-mqtt (+ transport-mtls for the TLS default)
 [[pipeline]]
-name = "status-mqtt"
-source = { kind = "clock", cadence_ms = 60000 }
+name = "weather-mqtt"
+source = { kind = "bme280", cadence_ms = 10000 }
 [pipeline.sink]
 kind = "mqtt-ingest"
-type = "status"
+type = "weather"
 tls = false
 ```
 
@@ -109,8 +123,10 @@ just check                  # fmt + clippy -D warnings + build + tests
 just flag-matrix            # all-off, each leaf alone, all-on (+ anchor tests)
 just build-esp              # ESP32-S3 release ELF (default features)
 just build-esp "--all-features"
-just run                    # host: print the resolved schedule
+just run                    # host: boot + simulated horizon, delivery report
 ```
 
 `config/pipelines.toml` is compiled into the binary as boot defaults; the
-committed document instantiates under the default feature set.
+committed document instantiates under the default feature set and executes
+against the `clock` source (the decibel pipelines idle on `Pending` until
+the sensor driver PRs land).

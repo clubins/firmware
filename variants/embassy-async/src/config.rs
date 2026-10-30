@@ -99,6 +99,12 @@ pub const OFFLINE_BUFFER: u32 = 64;
 /// Poll cadence for sensor task skeletons whose drivers have not landed yet.
 pub const SENSOR_POLL_INTERVAL_MS: u64 = 1_000;
 
+/// Upper bound of the sensor task error backoff (`sensor::SensorTask`):
+/// a permanently faulted sensor retries a few times a minute instead of
+/// spinning on its bus. An architecture constant, not a tunable — it shapes
+/// the fault behaviour of every sensor task at once.
+pub const MAX_SENSOR_BACKOFF_MS: u64 = 30_000;
+
 /// Built-in transport selection (`transport.active`). Values: `"http" |
 /// "mqtt"`.
 pub const ACTIVE_TRANSPORT: &str = "http";
