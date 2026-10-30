@@ -2,7 +2,7 @@
 # REQUIRES the shared core: the sensor contract and the measurement model
 # live there (V2 parity — every driver crate depends on firmware-core).
 idf_component_register(
-    SRCS "src/bme280.c"
+    SRCS "src/bme280_driver.c"
     INCLUDE_DIRS "include"
     REQUIRES clubins_core
 )
