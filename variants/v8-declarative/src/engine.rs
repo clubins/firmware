@@ -222,6 +222,12 @@ impl Engine {
                     inputs.push(m);
                 }
             }
+            #[cfg(feature = "sensor-sht4x")]
+            SourceExec::Sht4x { driver, faults } => {
+                if let Some(m) = Self::sensor_beat(&mut self.bus, driver, faults) {
+                    inputs.push(m);
+                }
+            }
         }
 
         for sample in inputs {

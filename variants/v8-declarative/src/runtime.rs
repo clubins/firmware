@@ -45,6 +45,8 @@ use crate::measurement::Measurement;
 use crate::measurement::{StatusReport, StatusResult};
 #[cfg(feature = "sensor-bme280")]
 use crate::sensors::bme280::Bme280;
+#[cfg(feature = "sensor-sht4x")]
+use crate::sensors::sht4x::Sht4x;
 // `registry::` paths and `MeasurementType` are only used by the HTTP/MQTT
 // sink builders; in other feature worlds the bare kind names suffice.
 #[cfg(any(feature = "transport-http", feature = "transport-mqtt"))]
@@ -81,6 +83,9 @@ pub enum SourceExec {
     /// status payload reports.
     #[cfg(feature = "sensor-bme280")]
     Bme280 { driver: Bme280, faults: u64 },
+    /// SHT4x over I²C (`sensor-sht4x`): same shape as [`SourceExec::Bme280`].
+    #[cfg(feature = "sensor-sht4x")]
+    Sht4x { driver: Sht4x, faults: u64 },
     /// A hardware source awaiting its driver PR (decibel, pir, scd4x,
     /// pms5003, bh1750): produces no samples.
     Pending,
@@ -96,6 +101,8 @@ impl SourceExec {
         match self {
             #[cfg(feature = "sensor-bme280")]
             Self::Bme280 { faults, .. } => *faults,
+            #[cfg(feature = "sensor-sht4x")]
+            Self::Sht4x { faults, .. } => *faults,
             _ => 0,
         }
     }
@@ -364,6 +371,11 @@ fn build_source(kind: SourceKind) -> SourceExec {
         #[cfg(feature = "sensor-bme280")]
         SourceKind::Bme280 => SourceExec::Bme280 {
             driver: Bme280::new(),
+            faults: 0,
+        },
+        #[cfg(feature = "sensor-sht4x")]
+        SourceKind::Sht4x => SourceExec::Sht4x {
+            driver: Sht4x::new(),
             faults: 0,
         },
         #[cfg(feature = "sensor-scd4x")]

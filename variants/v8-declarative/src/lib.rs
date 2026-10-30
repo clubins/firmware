@@ -79,6 +79,8 @@ pub mod sensors {
 
     #[cfg(feature = "sensor-bme280")]
     pub mod bme280;
+    #[cfg(feature = "sensor-sht4x")]
+    pub mod sht4x;
 }
 
 /// The interpreter — [`engine`] + [`runtime`] — exists only when at least
