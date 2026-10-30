@@ -1,0 +1,77 @@
+[package]
+name = "firmware"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "firmware"
+path = "src/main.rs"
+
+[dependencies]
+firmware-core = { workspace = true }
+heapless = { workspace = true }
+
+# Capability crates — each maps 1:1 to a spec §Feature Matrix flag (see
+# README for the flag → crate matrix).
+driver-decibel = { workspace = true, optional = true }
+driver-pax = { workspace = true, optional = true }
+driver-bme280 = { workspace = true, optional = true }
+driver-sht4x = { workspace = true, optional = true }
+driver-scd4x = { workspace = true, optional = true }
+driver-pms5003 = { workspace = true, optional = true }
+driver-bh1750 = { workspace = true, optional = true }
+transport-http = { workspace = true, optional = true }
+transport-mqtt = { workspace = true, optional = true }
+ops-ota = { workspace = true, optional = true }
+ops-provisioning = { workspace = true, optional = true }
+ops-sleep = { workspace = true, optional = true }
+ops-status = { workspace = true, optional = true }
+logging-defmt = { workspace = true, optional = true }
+
+# The Xtensa HAL comes in with the target, not with a feature: host builds
+# (feature matrix, tests, clippy) never compile it, and target builds always
+# have it. This mirrors esp-hal's own target-gated dependency pattern.
+[target.'cfg(target_arch = "xtensa")'.dependencies]
+esp-hal = { workspace = true }
+# Global heap (Wi-Fi/TLS buffers land here later) and the panic handler.
+# The panic handler requires exactly one output backend (its build script
+# enforces it); UART println is the scaffold default until logging-defmt
+# wires the defmt transport.
+esp-alloc = { workspace = true, features = ["esp32s3"] }
+esp-backtrace = { workspace = true, features = [
+    "esp32s3",
+    "panic-handler",
+    "halt-cores",
+    "println",
+] }
+# esp-backtrace's println feature pulls esp-println with default features
+# (which include "auto"), and default features cannot be disabled through
+# another crate's dependency edge — so the unified graph must have exactly
+# "auto" (its build script enforces one of jtag-serial/uart/auto/no-op). On
+# S3 auto resolves the transport at runtime (USB-Serial-JTAG or UART).
+esp-println = { workspace = true, features = ["esp32s3", "auto"] }
+
+[features]
+default = ["sensor-decibel", "transport-http", "ops-status"]
+# Sensors — each enables its driver crate.
+sensor-decibel = ["dep:driver-decibel"]
+sensor-pax = ["dep:driver-pax"]
+sensor-bme280 = ["dep:driver-bme280"]
+sensor-sht4x = ["dep:driver-sht4x"]
+sensor-scd4x = ["dep:driver-scd4x"]
+sensor-pms5003 = ["dep:driver-pms5003"]
+sensor-bh1750 = ["dep:driver-bh1750"]
+# Transports — config picks the active one at runtime.
+transport-http = ["dep:transport-http"]
+transport-mqtt = ["dep:transport-mqtt"]
+# mTLS is an MQTT connection mode (client certs from NVS, CN = sensor UUID).
+transport-mtls = ["transport-mqtt"]
+# Ops.
+ota = ["dep:ops-ota"]
+provisioning = ["dep:ops-provisioning"]
+deep-sleep = ["dep:ops-sleep"]
+logging-defmt = ["dep:logging-defmt"]
+ops-status = ["dep:ops-status"]
