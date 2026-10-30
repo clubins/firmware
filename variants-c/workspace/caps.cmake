@@ -4,9 +4,14 @@
 # table: every public capability leaf maps 1:1 to a workspace component,
 # exactly as V2 maps each leaf to an optional crate dependency.
 #
-# CONFIG_CLUBINS_CAP_* variables come from sdkconfig on device (ESP-IDF
-# exports every Kconfig symbol as a CMake variable) and from -D definitions
-# on the host (tools/flag-matrix.sh mirrors the Kconfig select graph).
+# CONFIG_CLUBINS_CAP_* flags are read from -D CMake variables on the host
+# (tools/flag-matrix.sh mirrors the Kconfig select graph) and from the
+# generated sdkconfig header in C on device (#if CONFIG_CLUBINS_CAP_*). The
+# two paths share the same Kconfig-declared names. Device CMakeLists do not
+# read the flags at all: ESP-IDF evaluates component CMakeLists before the
+# sdkconfig exists, so the composition root (main) takes every capability
+# component as a static REQUIRES and feature selection happens in C — see
+# main/CMakeLists.txt.
 #
 # The three lists below are parallel: index i across CLUBINS_CAP_FLAGS,
 # CLUBINS_CAP_COMPONENTS, and CLUBINS_CAP_SOURCES describes one capability
@@ -92,22 +97,6 @@ set(CLUBINS_CAP_SOURCES
     "components/ops/logging_defmt/src/logging_defmt.c"
     "components/ops/ops_status/src/ops_status.c"
 )
-
-# The component names the composed app requires, in stable registry order —
-# the consumer in main/CMakeLists.txt passes the result as REQUIRES.
-function(clubins_caps_required_components out_var)
-    set(requires)
-    list(LENGTH CLUBINS_CAP_FLAGS count)
-    math(EXPR last "${count} - 1")
-    foreach(i RANGE "${last}")
-        list(GET CLUBINS_CAP_FLAGS "${i}" flag)
-        list(GET CLUBINS_CAP_COMPONENTS "${i}" component)
-        if(CONFIG_CLUBINS_CAP_${flag})
-            list(APPEND requires "${component}")
-        endif()
-    endforeach()
-    set(${out_var} "${requires}" PARENT_SCOPE)
-endfunction()
 
 # The host mirror of the same composition: sources and include dirs of the
 # components this combination enables. A flag wired to a composition arm

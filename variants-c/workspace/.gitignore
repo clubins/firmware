@@ -1,5 +1,5 @@
 # ESP-IDF build outputs (never committed)
-build/
+build*/
 sdkconfig
 sdkconfig.old
 sdkconfig.bak

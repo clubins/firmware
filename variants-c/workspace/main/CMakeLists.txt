@@ -14,8 +14,14 @@
 
 include(${CMAKE_CURRENT_LIST_DIR}/../caps.cmake)
 
-clubins_caps_required_components(CLUBINS_REQUIRES)
-list(PREPEND CLUBINS_REQUIRES clubins_core)
+# Every capability component is a static build-graph dependency of the
+# composition root. ESP-IDF evaluates component CMakeLists before the
+# sdkconfig exists (the Kconfig-to-CMake export lands later than component
+# processing), so REQUIRES cannot be flag-conditional at registration time.
+# Feature selection happens in C instead: app_compose.c compiles only the
+# CONFIG_CLUBINS_CAP_* arms it was built for, and unreferenced component
+# code is dropped at link time (static libs + --gc-sections).
+set(CLUBINS_REQUIRES clubins_core ${CLUBINS_CAP_COMPONENTS})
 
 idf_component_register(
     SRCS "main.c" "app_compose.c"

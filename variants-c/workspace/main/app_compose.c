@@ -69,9 +69,6 @@ static const clubins_hook_t s_hooks[] = {
 #if CONFIG_CLUBINS_CAP_TRANSPORT_MQTT
     {clubins_transport_mqtt_init, clubins_transport_mqtt_tick},
 #endif
-#if CONFIG_CLUBINS_CAP_TRANSPORT_MTLS
-    {clubins_transport_mtls_init, clubins_transport_mtls_tick},
-#endif
 #if CONFIG_CLUBINS_CAP_OTA
     {clubins_ops_ota_init, clubins_ops_ota_tick},
 #endif
@@ -90,7 +87,13 @@ static const clubins_hook_t s_hooks[] = {
     {NULL, NULL}, /* sentinel: never counted */
 };
 
-static size_t hook_count(void)
+/* Always inlined: the count is compile-time sizeof arithmetic, and folding
+ * it at every use is what keeps the all-off build linkable. With the count
+ * left as a runtime call, GCC peels the hooks loop's first iteration and
+ * emits an indirect call through the sentinel's constant-NULL entry — a
+ * relocation the Xtensa linker's call expansion cannot place ("windowed
+ * longcall crosses 1GB boundary; return may fail: *UND*"). */
+static inline __attribute__((always_inline)) size_t hook_count(void)
 {
     return (sizeof(s_hooks) / sizeof(s_hooks[0])) - 1;
 }
