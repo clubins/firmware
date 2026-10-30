@@ -22,6 +22,24 @@ pub enum BusError {
     Other,
 }
 
+/// Sensirion's CRC-8 (polynomial 0x31, init 0xFF, MSB first) — the
+/// checksum protecting every transferred word on the Sensirion I2C
+/// sensors (SHT4x, SCD4x; the app note's check value 0xBEEF → 0x92).
+pub fn crc8(bytes: &[u8]) -> u8 {
+    let mut crc: u8 = 0xFF;
+    for &b in bytes {
+        crc ^= b;
+        for _ in 0..8 {
+            crc = if crc & 0x80 != 0 {
+                (crc << 1) ^ 0x31
+            } else {
+                crc << 1
+            };
+        }
+    }
+    crc
+}
+
 /// Synchronous I2C transactions — the register-level voice of the drivers.
 /// Mirrors the embedded-hal operation set (write / read / write-read) so
 /// the future `esp-hal` adapter is a thin wrapper.
@@ -40,38 +58,10 @@ pub trait I2cBus {
     ) -> Result<(), BusError>;
 }
 
-/// Milliseconds since boot — the pacing source for datasheet timings
-/// (conversion durations, reset startup). The target adapter wraps
-/// `esp-hal`'s monotonic time; host tests script it with [`FixedClock`].
-pub trait Clock {
-    fn now_ms(&self) -> u64;
-}
-
-/// A clock the test advances directly, so a flow can move time between
-/// dispatches without sleeping. The driver owns a `Box<dyn Clock>` over a
-/// clone of the same handle — `Rc` makes the clones share one clock.
-#[derive(Clone, Debug, Default)]
-pub struct SharedClock(alloc::rc::Rc<core::cell::Cell<u64>>);
-
-impl SharedClock {
-    pub fn new(ms: u64) -> Self {
-        Self(alloc::rc::Rc::new(core::cell::Cell::new(ms)))
-    }
-
-    pub fn set(&self, ms: u64) {
-        self.0.set(ms);
-    }
-
-    pub fn advance(&self, ms: u64) {
-        self.0.set(self.0.get() + ms);
-    }
-}
-
-impl Clock for SharedClock {
-    fn now_ms(&self) -> u64 {
-        self.0.get()
-    }
-}
+// Time is shared across transports, so [`Clock`] and [`SharedClock`]
+// live in the `clock` module (compiled for UART drivers too); re-exported
+// here so the drivers keep one import surface.
+pub use crate::sensors::clock::{Clock, SharedClock};
 
 /// One recorded bus transaction. The drivers replay these on the host to
 /// pin the datasheet register flows byte-for-byte.

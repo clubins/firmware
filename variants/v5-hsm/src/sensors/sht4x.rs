@@ -51,23 +51,9 @@ const REPLY_LEN: usize = 6; // word (2) + CRC, word (2) + CRC
 /// Maximum high-precision measurement duration, rounded up to whole ms.
 const MEAS_HIGH_MAX_MS: u64 = 9;
 
-/// Sensirion's CRC-8 (polynomial 0x31, init 0xFF, MSB first) — the
-/// checksum protecting every transferred word (datasheet §4.4; the app
-/// note's check value 0xBEEF → 0x92).
-pub fn crc8(bytes: &[u8]) -> u8 {
-    let mut crc: u8 = 0xFF;
-    for &b in bytes {
-        crc ^= b;
-        for _ in 0..8 {
-            crc = if crc & 0x80 != 0 {
-                (crc << 1) ^ 0x31
-            } else {
-                crc << 1
-            };
-        }
-    }
-    crc
-}
+/// Sensirion's CRC-8 — one shared definition in the bus module, re-exported
+/// so the driver's checksum API (and its pinning tests) read as its own.
+pub use crate::sensors::bus::crc8;
 
 /// Validates a two-word CRC-8-protected reply and returns the words.
 fn parse_reply(bytes: &[u8; REPLY_LEN]) -> Option<(u16, u16)> {

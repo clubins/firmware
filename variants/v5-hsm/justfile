@@ -20,10 +20,13 @@ build:
     cargo build --locked
 
 # Default-feature suites plus the sensor-driver suites, which only exist
-# under their feature flags (register_flow needs both drivers).
+# under their feature flags (register_flow needs the i2c pair,
+# driver_conformance the scd4x + pms5003 pair).
 test:
     cargo test --locked
     cargo test --locked --features sensor-bme280,sensor-sht4x
+    cargo test --locked --features sensor-scd4x,sensor-sht4x,sensor-pms5003
+    cargo test --locked --no-default-features --features sensor-pms5003
 
 # ESP32-S3 release ELF on the pinned fork toolchain. Extra features are
 # passed through, e.g.: just build-esp "--all-features"
