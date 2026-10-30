@@ -11,14 +11,18 @@
 //! objects: the interpreter is a `match` over the kinds, which is what keeps
 //! it small, `no_std`-friendly, and exhaustive under every feature world.
 //!
-//! Behavioural honesty — what runs today vs. what the driver PRs bring:
+//! Behavioural honesty — what runs today vs. what later PRs bring:
 //!
 //! - the plumbing kinds are real: `pipe` sources drain their upstream's
 //!   finished stream, `aggregate`/`throttle` window and thin the stream,
 //!   `clock` emits a contract-valid status heartbeat per beat;
-//! - hardware sources are `Pending` — they produce no samples until their
-//!   driver PR lands, so their pipelines idle (validated and scheduled, but
-//!   nothing flows). The mechanism does not fake sensor readings;
+//! - the BME280 and SHT4x sources run their datasheet register flows on
+//!   the engine's I²C bus (see [`crate::sensors`]), one beat of bus work
+//!   per fire, emitting environmental measurements;
+//! - hardware sources still awaiting their drivers are [`SourceExec::Pending`]
+//!   — they produce no samples, so their pipelines idle (validated and
+//!   scheduled, but nothing flows). The mechanism does not fake sensor
+//!   readings;
 //! - capability stages (`a-weight`, `c-weight`, `window-stats`,
 //!   `pax-integrate`) are identity pass-throughs until their DSP/integration
 //!   behaviour arrives with the driver PRs;
@@ -39,6 +43,8 @@ use crate::graph::Instance;
 use crate::measurement::Measurement;
 #[cfg(feature = "ops-status")]
 use crate::measurement::{StatusReport, StatusResult};
+#[cfg(feature = "sensor-bme280")]
+use crate::sensors::bme280::Bme280;
 // `registry::` paths and `MeasurementType` are only used by the HTTP/MQTT
 // sink builders; in other feature worlds the bare kind names suffice.
 #[cfg(any(feature = "transport-http", feature = "transport-mqtt"))]
@@ -51,8 +57,10 @@ use crate::registry::{SinkKind, SourceKind, StageKind};
 /// ([`crate::engine::Engine::outbox_dropped`]), never silent.
 pub(crate) const OUTBOX_CAP: usize = 64;
 
-/// A runnable source. One variant per compiled-in [`SourceKind`]; hardware
-/// kinds are [`SourceExec::Pending`] until their driver PR lands.
+/// A runnable source. One variant per compiled-in [`SourceKind`]; the
+/// BME280 and SHT4x kinds run their drivers on the engine's I²C bus
+/// (one flow leg per fire); hardware kinds still awaiting drivers are
+/// [`SourceExec::Pending`].
 #[derive(Clone, Debug)]
 pub enum SourceExec {
     /// Consumes another pipeline's finished stream (`pipe`). The upstream's
@@ -67,8 +75,30 @@ pub enum SourceExec {
     /// distinguishable payload.
     #[cfg(feature = "ops-status")]
     Clock { beat: u64 },
-    /// A hardware source awaiting its driver PR: produces no samples.
+    /// BME280 over I²C (`sensor-bme280`): the datasheet driver's state,
+    /// advancing bring-up or one forced conversion per beat, plus the
+    /// fault counter (bus errors, wrong id) — the source-health signal a
+    /// status payload reports.
+    #[cfg(feature = "sensor-bme280")]
+    Bme280 { driver: Bme280, faults: u64 },
+    /// A hardware source awaiting its driver PR (decibel, pir, scd4x,
+    /// pms5003, bh1750): produces no samples.
     Pending,
+}
+
+impl SourceExec {
+    /// Faulted bus flows this source has counted since instantiation —
+    /// the source-health diagnostic (a pipeline emitting nothing with a
+    /// climbing fault counter is a dead or absent sensor, not a silent
+    /// one). Non-hardware sources have no bus and never fault.
+    #[cfg(any(feature = "sensor-bme280", feature = "sensor-sht4x"))]
+    pub(crate) fn faults(&self) -> u64 {
+        match self {
+            #[cfg(feature = "sensor-bme280")]
+            Self::Bme280 { faults, .. } => *faults,
+            _ => 0,
+        }
+    }
 }
 
 /// A runnable stage. One variant per compiled-in [`StageKind`].
@@ -319,8 +349,9 @@ pub(crate) fn clock_heartbeat(beat: u64) -> Measurement {
     Measurement::status(report)
 }
 
-/// Build a source's execution state. Hardware kinds have no driver yet —
-/// they all map to [`SourceExec::Pending`] and idle until their PR lands.
+/// Build a source's execution state. The BME280 and SHT4x arms hand the
+/// run its driver; the remaining hardware kinds have no driver yet — they
+/// map to [`SourceExec::Pending`] and idle until their PRs land.
 fn build_source(kind: SourceKind) -> SourceExec {
     match kind {
         SourceKind::Pipe => SourceExec::Pipe { upstream: 0 },
@@ -331,9 +362,10 @@ fn build_source(kind: SourceKind) -> SourceExec {
         #[cfg(feature = "sensor-pax")]
         SourceKind::Pir => SourceExec::Pending,
         #[cfg(feature = "sensor-bme280")]
-        SourceKind::Bme280 => SourceExec::Pending,
-        #[cfg(feature = "sensor-sht4x")]
-        SourceKind::Sht4x => SourceExec::Pending,
+        SourceKind::Bme280 => SourceExec::Bme280 {
+            driver: Bme280::new(),
+            faults: 0,
+        },
         #[cfg(feature = "sensor-scd4x")]
         SourceKind::Scd4x => SourceExec::Pending,
         #[cfg(feature = "sensor-pms5003")]

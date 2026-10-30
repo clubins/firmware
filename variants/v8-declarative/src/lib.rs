@@ -15,6 +15,11 @@
 //! - [`engine`] — instantiation, `pipe` wiring, and the cadence scheduler
 //!   that executes due pipelines;
 //! - [`measurement`] — the typed measurement model a pipeline produces;
+//! - [`bus`] — the I²C bus mechanism: the embedded-hal-shaped transaction
+//!   trait plus the scripted, fixed-capacity simulated bus (the stand-in
+//!   for the ESP32-S3's I²C peripheral until the device glue PR lands,
+//!   and the host-test instrument for recorded register flows);
+//! - [`sensors`] — the flag-gated sensor drivers over [`bus`];
 //! - [`http_json`] — the HTTP JSON ingest codec (`transport-http` feature),
 //!   field-exact against the Go ingest structs;
 //! - [`config`] — the device config: committed `config/default.toml`
@@ -37,6 +42,44 @@ pub mod measurement;
 pub mod nvs;
 pub mod ops;
 pub mod registry;
+
+/// The I²C bus mechanism — exists exactly when an I²C capability is
+/// compiled in (every I²C sensor leaf pulls the internal `driver-i2c`
+/// plumbing flag).
+#[cfg(feature = "driver-i2c")]
+pub mod bus;
+
+/// Sensor drivers over [`bus`] — one module per `sensor-*` flag. Each
+/// driver walks its part's datasheet register flow one engine beat at a
+/// time and produces [`crate::measurement::Measurement`]s.
+pub mod sensors {
+    #[cfg(feature = "driver-i2c")]
+    use crate::bus::I2c;
+    #[cfg(feature = "driver-i2c")]
+    use crate::measurement::Measurement;
+
+    /// A driver-classified fault (bus error, wrong id, bad frame). The
+    /// engine counts these per source; the specific kind stays with the
+    /// driver that produced it (that driver's tests pin it).
+    #[cfg(feature = "driver-i2c")]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct SensorFault;
+
+    /// The seam between the engine and a sensor driver: advance the
+    /// part's datasheet flow by one beat's worth of bus work. `Ok(None)`
+    /// is a parked flow (bring-up, conversion in flight) — the next beat
+    /// resumes it.
+    #[cfg(feature = "driver-i2c")]
+    pub trait BeatDriver {
+        fn beat<B: I2c>(
+            &mut self,
+            bus: &mut B,
+        ) -> Result<Option<Measurement>, SensorFault>;
+    }
+
+    #[cfg(feature = "sensor-bme280")]
+    pub mod bme280;
+}
 
 /// The interpreter — [`engine`] + [`runtime`] — exists only when at least
 /// one sink kind is compiled in: every valid pipeline declaration needs a

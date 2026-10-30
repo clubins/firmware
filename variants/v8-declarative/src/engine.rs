@@ -10,18 +10,25 @@
 //! pushes them through the stage chain, and delivers to its sink — and
 //! returns the runs that fired, in schedule order.
 //!
-//! Real hardware behaviour arrives with the driver PRs: hardware sources
-//! are `Pending` (their pipelines idle), capability stages are identity
-//! slots, and sinks count deliveries. The mechanism — graph validation,
-//! flag-gated instantiation, stream wiring, cadence execution — is complete
-//! and host-tested; the drivers slot into it without touching the engine.
+//! Real hardware behaviour arrives with the driver PRs: the BME280 and
+//! SHT4x sources already run their datasheet flows on the engine's I²C bus
+//! (one flow leg per beat — see [`crate::sensors`]); the remaining sensor
+//! sources are `Pending` (their pipelines idle) and capability stages are
+//! identity slots. Sinks count deliveries. The mechanism — graph
+//! validation, flag-gated instantiation, stream wiring, cadence execution
+//! — is complete and host-tested; each new driver slots in without
+//! touching the engine.
 
 use alloc::vec::Vec;
 
+#[cfg(any(feature = "sensor-bme280", feature = "sensor-sht4x"))]
+use crate::bus::SimulatedI2c;
 use crate::decl::Pipelines;
 use crate::graph::{self, GraphError};
 use crate::measurement::Measurement;
 use crate::runtime::{PipelineRun, SourceExec};
+#[cfg(any(feature = "sensor-bme280", feature = "sensor-sht4x"))]
+use crate::sensors::BeatDriver;
 
 /// The instantiated pipeline engine.
 #[derive(Clone, Debug)]
@@ -29,6 +36,13 @@ pub struct Engine {
     /// Runs in topological (dependency) order: an upstream's index is
     /// always smaller than its consumers'.
     runs: Vec<PipelineRun>,
+    /// The engine's I²C bus — the one mechanism instance the declared
+    /// sensor sources' drivers share, one flow leg per beat. The scripted
+    /// simulated bus stands in for the ESP32-S3's I²C peripheral until the
+    /// device glue PR lands (same transaction trait; the swap is a field
+    /// assignment — see [`Engine::with_bus`]).
+    #[cfg(any(feature = "sensor-bme280", feature = "sensor-sht4x"))]
+    bus: SimulatedI2c,
 }
 
 impl Engine {
@@ -68,7 +82,21 @@ impl Engine {
             }
         }
 
-        Ok(Self { runs })
+        Ok(Self {
+            runs,
+            #[cfg(any(feature = "sensor-bme280", feature = "sensor-sht4x"))]
+            bus: SimulatedI2c::new(),
+        })
+    }
+
+    /// Swap in a bus. Host tests script register flows on the simulated
+    /// bus; the device build keeps the constructor default and wires the
+    /// real peripheral behind the same transaction trait when its glue
+    /// PR lands.
+    #[cfg(any(feature = "sensor-bme280", feature = "sensor-sht4x"))]
+    pub fn with_bus(mut self, bus: SimulatedI2c) -> Self {
+        self.bus = bus;
+        self
     }
 
     /// Number of compiled pipelines in dependency order.
@@ -115,6 +143,18 @@ impl Engine {
             .iter()
             .find(|r| r.name.as_str() == name)
             .map(|r| r.outbox_dropped)
+    }
+
+    /// Bus-flow faults a pipeline's source has counted since instantiation
+    /// (the driver re-enters bring-up on its next beat), by name. A pipeline
+    /// emitting nothing while this climbs is a dead or absent sensor, not a
+    /// silent one. Sources without a bus never fault.
+    #[cfg(any(feature = "sensor-bme280", feature = "sensor-sht4x"))]
+    pub fn source_faults(&self, name: &str) -> Option<u64> {
+        self.runs
+            .iter()
+            .find(|r| r.name.as_str() == name)
+            .map(|r| r.source.faults())
     }
 
     /// The last measurement a pipeline's sink accepted, by name.
@@ -173,6 +213,15 @@ impl Engine {
                 *beat += 1;
                 inputs.push(crate::runtime::clock_heartbeat(*beat));
             }
+            // Sensor drivers: one datasheet-flow leg per beat. A fault is
+            // counted, not propagated — the source stays scheduled and the
+            // driver re-enters bring-up on its next beat.
+            #[cfg(feature = "sensor-bme280")]
+            SourceExec::Bme280 { driver, faults } => {
+                if let Some(m) = Self::sensor_beat(&mut self.bus, driver, faults) {
+                    inputs.push(m);
+                }
+            }
         }
 
         for sample in inputs {
@@ -194,6 +243,28 @@ impl Engine {
                     run.outbox.remove(0);
                     run.outbox_dropped += 1;
                 }
+            }
+        }
+    }
+
+    /// Drive one sensor's datasheet flow by one beat on the engine's bus
+    /// and surface the measurement it produced, if any. A fault (bus error,
+    /// wrong id, bad frame) is counted on the run, not propagated: a flaky
+    /// sensor retries, a dead one keeps its fault count climbing.
+    #[cfg(any(feature = "sensor-bme280", feature = "sensor-sht4x"))]
+    fn sensor_beat<D: BeatDriver>(
+        bus: &mut SimulatedI2c,
+        driver: &mut D,
+        faults: &mut u64,
+    ) -> Option<Measurement> {
+        match driver.beat(bus) {
+            Ok(Some(m)) => Some(m),
+            Ok(None) => None,
+            // The fault's kind stays with the driver (its tests pin it);
+            // the count is the engine's signal.
+            Err(_) => {
+                *faults += 1;
+                None
             }
         }
     }
