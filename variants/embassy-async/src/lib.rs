@@ -5,9 +5,10 @@
 //! - The library (this tree, `no_std`) holds every pure-logic concern: the
 //!   measurement/status event model, the typed bounded channels that connect
 //!   tasks, the boot-session identity and per-topic sequencing those events
-//!   carry, the built-in configuration constants, and the feature-resolution
-//!   layer that turns the cargo flag matrix into a task plan. It compiles
-//!   and tests on the host, keeping CI fast.
+//!   carry, the HTTP JSON encoders for the ingest contract, the built-in
+//!   configuration constants, and the feature-resolution layer that turns
+//!   the cargo flag matrix into a task plan. It compiles and tests on the
+//!   host, keeping CI fast.
 //! - The device personality (`src/main.rs` + `src/device/`, Xtensa only)
 //!   boots esp-hal, starts the esp-rtos embassy executor, and spawns one
 //!   async task per enabled capability. Sensor tasks publish
@@ -26,6 +27,7 @@
 #![no_std]
 
 pub mod channels;
+pub mod codec;
 pub mod config;
 pub mod events;
 pub mod features;
