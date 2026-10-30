@@ -28,13 +28,16 @@ pub mod stubkit;
 pub mod system;
 
 pub mod sensors {
-    //! Sensor capability stubs — one module per `sensor-*` flag. Real
-    //! drivers ship in downstream PRs (docs/plan/build-dag.md).
+    //! Sensor capabilities — one module per `sensor-*` flag. Drivers
+    //! communicate through `bus` until the esp-hal adapter lands; stubs
+    //! keep the composition root wired meanwhile.
 
     #[cfg(feature = "sensor-bh1750")]
     pub mod bh1750;
     #[cfg(feature = "sensor-bme280")]
     pub mod bme280;
+    #[cfg(feature = "driver-i2c")]
+    pub mod bus;
     #[cfg(feature = "sensor-decibel")]
     pub mod decibel;
     #[cfg(feature = "sensor-pax")]
