@@ -1,0 +1,289 @@
+<!DOCTYPE html><html lang="en"><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Clubins Firmware — Full-Feature Flagged Build Spec</title>
+  </head>
+  <body>
+    <main data-bp-node-id="doc-body"><header>
+  <bp-eyebrow>Spec · hardware-firmware</bp-eyebrow>
+  <h1>Clubins firmware — every feature, behind a flag</h1>
+  <bp-subheader>Replace the hello-world placeholder with a full ESP32-S3 firmware on esp-hal: a cargo-feature flag framework, a committed config file for runtime tuning, the decibel DSP from the existing design notes, six additional sensor drivers, and both ingest transports (HTTP JSON today, MQTT v2 protobuf as designed). Compile-verified on the exact CI toolchain, delivered as PRs.</bp-subheader>
+</header>
+
+<bp-toc label="Contents"></bp-toc>
+
+<section data-bp-node-id="problem" id="problem"><h2 data-sidebar="Problem">Why this spec exists</h2>
+<p>The Clubins device story is ESP32-S3 sensors → ingest → ClickHouse → dashboard. The firmware link in that chain is a <code>println!("Hello, world!")</code>. The request: build the full firmware now, with every capability implemented and switchable — nothing hard-wired, everything behind a flag — so that deciding on features later is a config edit, never a rewrite.</p>
+
+<div class="card-grid">
+  <article>
+    <bp-eyebrow>Current signal</bp-eyebrow>
+    <p><code>hardware-firmware/src/main.rs</code> is a host hello-world with an empty dependency list and zero implemented sensor types. The only sensor design in the repo — the SPK0641HT4H-1 PDM microphone with A/C-weighted level statistics — exists as prose in <code>implementation_notes/decibel.md</code>, unimplemented. The server, meanwhile, already speaks a concrete ingest contract the firmware does not fulfill.</p>
+  </article>
+  <article>
+    <bp-eyebrow>Desired outcome</bp-eyebrow>
+    <p>A real ESP32-S3 firmware crate that compiles on the pinned CI toolchain: capability flags in <code>Cargo.toml</code>, runtime tunables in a committed <code>config/default.toml</code>, the decibel DSP implemented from its design notes, a curated set of additional sensor drivers each behind its own flag, and both ingest transports — the working HTTP-JSON path and the designed-but-unbuilt MQTT v2 protobuf path.</p>
+  </article>
+</div>
+
+<bp-callout type="invariant" label="Load-bearing assumption">
+  The curated driver set (PDM mic, PIR, BME280, SHT4x, SCD4x, PMS5003, BH1750) plus flag plumbing covers what Patrick will later want. Supporting evidence: the server contract's measurement types (decibel, pax, weather, status) and the repo's own product copy — "sound levels, occupancy, and environmental conditions." What would overturn it: real hardware that none of these drivers speak to. In that case a new driver is a small, flag-scoped PR — which is exactly what the framework is for.
+</bp-callout>
+
+<bp-callout type="ref" label="Scope boundary">
+  <p>Server-side work stays out of scope: the firmware <em>emits</em> the new measurement types (co2, pm25, light) following the repo's own one-topic-per-type rule; ingest endpoints, ClickHouse tables, and Postgres <code>sensor_types</code> rows for them are a separate backend change. No physical boards are flashed during this build — verification is compile-level plus host test suites.</p>
+</bp-callout>
+</section>
+
+<section data-bp-node-id="current-state" id="current-state"><h2 data-sidebar="Current state">What the repo shows today</h2>
+<p>Evidence from two read-only research passes plus direct reads of the contract sources. One conflicting finding (the ingest JSON field names) was re-verified directly in the Go source before this spec was written; the table reflects the verified values.</p>
+
+<table>
+  <thead><tr><th scope="col">What is true today</th><th scope="col">Evidence</th><th scope="col">What it shaped</th></tr></thead>
+  <tbody>
+    <tr>
+      <th scope="row">The firmware is a placeholder</th>
+      <td><code>hardware-firmware/src/main.rs</code> prints "Hello, world!"; <code>Cargo.toml</code> <code>[dependencies]</code> is empty; the crate has zero tests.</td>
+      <td>Everything is greenfield; no legacy firmware patterns to preserve.</td>
+    </tr>
+    <tr>
+      <th scope="row">Decibel DSP is fully designed, not built</th>
+      <td><code>hardware-firmware/implementation_notes/decibel.md</code>: SPK0641HT4H-1 PDM mic → I2S0 PDM at 48 kHz, A/C weighting, LAeq/LCeq with Fast extrema, overload detection, per-unit calibration; pins esp-hal 1.2.2.</td>
+      <td>Decibel is the flagship driver, implemented from this document rather than invented.</td>
+    </tr>
+    <tr>
+      <th scope="row">The working ingest contract is HTTP JSON</th>
+      <td><code>server-infra/ingest/service/service.go</code> L49–51: common fields <code>sensor_id</code>, <code>apikey</code>, <code>time</code>. <code>decibel.go</code>: <code>measurement_id</code>, <code>dba</code>, <code>dbc</code>. <code>pax.go</code>: <code>occupancy_count</code>. <code>weather.go</code>: <code>temperature</code>, <code>humidity</code>, <code>precipitation</code>, <code>rain_probability</code>, <code>wind_speed</code>, <code>pressure</code>. <code>status.go</code>: <code>status_id</code>, <code>subsystem</code>, <code>result</code>, <code>message</code>. POST to <code>/v1/sensors/&lt;type&gt;</code>.</td>
+      <td>HTTP transport JSON bodies are field-exact against these structs; golden tests are derived from these files.</td>
+    </tr>
+    <tr>
+      <th scope="row">MQTT v2 is designed end-to-end but has no server bridge</th>
+      <td><code>api/mqtt/topics.md</code>: topic <code>v2/sensors/&lt;uuid&gt;/data/&lt;type&gt;</code> QoS 1, retained status, one topic and one proto file per measurement type; <code>v2/header.proto</code> (<code>time_ms</code>, <code>boot_id</code>, <code>seq</code>), <code>v2/status.proto</code> (<code>firmware_version</code>, <code>connection_state</code>); UUID comes from the client cert CN.</td>
+      <td>MQTT transport is implemented to this contract; end-to-end verification is limited to conformance tests against the proto files.</td>
+    </tr>
+    <tr>
+      <th scope="row">This sandbox can compile ESP32-S3 firmware</th>
+      <td>Nix 2.35.4 single-user install; CI-exact pinned toolchain (Rust fork 1.97.0.0, GCC 15.2.0) builds in ~1m40s; a probe crate on esp-hal 1.2.2 linked a 128 KB Xtensa ELF in 24.5s using rust-lld + <code>-Tlinkall.x</code> + <code>-Zbuild-std=core</code>. GNU ld fails cross-endian; stable rustc 1.99 breaks esp-hal ≤ 1.2.2.</td>
+      <td>"Test the compiling" is achievable in-sandbox for every flag combination; the CI recipe is proven.</td>
+    </tr>
+    <tr>
+      <th scope="row">CI must stay green in five ways</th>
+      <td><code>.github/workflows/hardware-firmware.yml</code> runs <code>just lint/build/test</code> inside <code>nix-shell --pure</code> with clippy <code>-D warnings</code>; treefmt (rustfmt edition 2024, max_width 90); separate security-audit workflow; AGENTS.md requires conventional commits and signed commits.</td>
+      <td>Every PR keeps lint, build, test, format, and security checks green. Staying single-crate avoids the diagnostics-remap regression the README documents for workspaces.</td>
+    </tr>
+  </tbody>
+</table>
+</section>
+
+<section data-bp-node-id="architecture" id="architecture"><h2 data-sidebar="Architecture">What we build</h2>
+<h3>Shape of the crate</h3>
+<p>One crate, two personalities. Pure-logic modules — config parsing, the sensor trait and registry, the decibel DSP math, and transport encoders — are <code>no_std</code>-compatible with <code>alloc</code>, so they compile and test on the host, keeping CI fast and the existing <code>just check</code> recipes meaningful. Everything hardware-bound — I2S PDM capture, I2C/UART buses, Wi-Fi, NVS, sleep — lives behind <code>esp32s3</code> and compiles only for the Xtensa target. <code>main.rs</code> stays thin: init config, bring up sensors and transport, run the loop.</p>
+
+<bp-source language="rust" summary="Sensor trait and registry (host-testable core)">
+pub trait Sensor {
+    fn metadata(&amp;self) -&gt; &amp;'static SensorMeta; // type name, bus, unit, ingest type
+    fn init(&amp;mut self, bus: &amp;mut Bus) -&gt; Result&lt;(), SensorError&gt;;
+    fn sample(&amp;mut self, bus: &amp;mut Bus) -&gt; Option<reading>;
+}
+
+// Built at boot: every compiled driver consults config; disabled = absent.
+pub struct Registry {
+    sensors: heapless::Vec<box<dyn sensor="">, MAX_SENSORS&gt;,
+}
+
+impl Registry {
+    pub fn from_config(cfg: &amp;Config, bus: &amp;mut Bus) -&gt; Self; // feature-gated arms
+}
+</box<dyn></reading></bp-source>
+
+<figure>
+  <svg viewBox="0 0 760 150" role="img" aria-labelledby="arch-title arch-desc" style="font: 13px var(--bp-mono, monospace)">
+    <title id="arch-title">Firmware runtime data flow</title>
+    <desc id="arch-desc">Boot loads config, initializes enabled sensors and the active transport; the main loop samples sensors, aggregates windows, encodes payloads, and publishes.</desc>
+    <rect class="svg-fill-100 svg-stroke-700" x="14" y="50" width="120" height="50" rx="4"></rect>
+    <text class="svg-fill-900" x="74" y="79" text-anchor="middle">BOOT · config</text>
+    <path class="svg-stroke-700" fill="none" d="M134 75H184"></path>
+    <rect class="svg-fill-100 svg-stroke-700" x="184" y="50" width="130" height="50" rx="4"></rect>
+    <text class="svg-fill-900" x="249" y="79" text-anchor="middle">sensor registry</text>
+    <path class="svg-stroke-700" fill="none" d="M314 75H364"></path>
+    <rect class="svg-fill-100 svg-stroke-700" x="364" y="50" width="140" height="50" rx="4"></rect>
+    <text class="svg-fill-900" x="434" y="79" text-anchor="middle">windows · encode</text>
+    <path class="svg-stroke-700" fill="none" d="M504 75H554"></path>
+    <rect class="svg-fill-100 svg-stroke-700" x="554" y="50" width="100" height="50" rx="4"></rect>
+    <text class="svg-fill-900" x="604" y="79" text-anchor="middle">transport</text>
+    <path class="svg-stroke-700" fill="none" d="M654 75H684"></path>
+    <rect class="svg-fill-100 svg-stroke-700" x="684" y="30" width="60" height="30" rx="4"></rect>
+    <text class="svg-fill-900" x="714" y="49" text-anchor="middle">HTTP</text>
+    <rect class="svg-fill-100 svg-stroke-700" x="684" y="90" width="60" height="30" rx="4"></rect>
+    <text class="svg-fill-900" x="714" y="109" text-anchor="middle">MQTT</text>
+    <path class="svg-stroke-700" fill="none" d="M604 100V75"></path>
+  </svg>
+  <figcaption>Sample → window → encode → publish; the transport is selected by config at runtime and by flag at compile time.</figcaption>
+</figure>
+
+<h3>The flag framework</h3>
+<p>Capabilities are cargo features — the compile-time half of "a flag in a config file." Every sensor driver, both transports, and each ops concern is its own leaf flag with no hidden coupling; the defaults set matches what the server can receive today. Runtime behavior that shouldn't require a recompile (cadences, thresholds, endpoints, which compiled transport is active) is tuned through <code>config/default.toml</code> with NVS overrides — that's the runtime half. The complete matrix is in <a href="#flag-matrix">the flag table</a>.</p>
+
+<bp-source language="toml" summary="Cargo features — capability flags">
+[features]
+default = ["sensor-decibel", "transport-http", "ops-status"]
+
+# Sensors — each enables its driver and registry arm
+sensor-decibel = []               # SPK0641HT4H-1 PDM mic, I2S0 @ 48 kHz
+sensor-pax     = ["driver-gpio"]  # occupancy front-end (PIR)
+sensor-bme280  = ["driver-i2c"]   # temperature + humidity + pressure
+sensor-sht4x   = ["driver-i2c"]   # temperature + humidity
+sensor-scd4x   = ["driver-i2c"]   # CO2
+sensor-pms5003 = ["driver-uart"]  # PM2.5 particulates
+sensor-bh1750  = ["driver-i2c"]   # ambient light
+
+# Transports — config selects the active one at runtime
+transport-http = ["net-wifi"]                 # working JSON ingest
+transport-mqtt = ["net-wifi", "proto-v2"]     # MQTT v2 protobuf contract
+transport-mtls = ["transport-mqtt"]           # client certs from NVS
+
+# Ops
+ota           = []
+provisioning  = ["net-wifi"]
+deep-sleep    = []
+logging-defmt = []
+ops-status    = []
+</bp-source>
+
+<h3>Decibel, implemented from the design note</h3>
+<p>The decibel driver is not an interpretation — <code>implementation_notes/decibel.md</code> already specifies the chain: PDM capture at 48 kHz on I2S0, decimation to PCM, DC removal, A- and C-weighting filters, 125 ms Fast windows, LAeq/LCeq with window min/max, overload detection, and a per-unit calibration offset. The calibration offset and overload threshold are NVS-overridable config values. The DSP math (weighting filters, energy accumulation, dB conversion) is pure Rust under <code>dsp/</code> with host unit tests against synthetic sines at reference levels; only the I2S front-end touches the target.</p>
+
+<h3>Transports</h3>
+<p><strong>HTTP (default, works today):</strong> Wi-Fi STA via the esp-rs Wi-Fi stack, then HTTPS POST of one JSON object per measurement to <code>&lt;endpoint&gt;/v1/sensors/&lt;type&gt;</code> with fields exactly as the Go structs define them. The API key is read from NVS, never from the committed config. Failures back off exponentially and drain a bounded offline buffer when connectivity returns.</p>
+<p><strong>MQTT (per the v2 design):</strong> connect to the broker, publish a retained <code>Status</code> with <code>Online</code> on every connect, then one message per measurement on <code>v2/sensors/&lt;uuid&gt;/data/&lt;type&gt;</code> at QoS 1. <code>boot_id</code> is 16 bytes from the hardware RNG per boot; <code>seq</code> restarts at 0 per topic per boot; a clean disconnect publishes <code>Offline</code>, and the LWT is <code>Died</code>. Protobuf encoding matches the <code>.proto</code> files field-for-field and is conformance-tested against them on the host.</p>
+<p><strong>Clock:</strong> SNTP after network join; per the contract, timestamps are 0 while unsynchronized so the server can distinguish "no clock" from "wrong clock."</p>
+
+<h3>Ops features</h3>
+<p>Status heartbeats (required by both contracts) are always on. Behind flags: OTA updates via the esp-ota partition scheme, deep-sleep duty cycling that trades measurement continuity for power, BLE-based Wi-Fi provisioning, and defmt logging over UART/USB-JTAG. A hardware watchdog runs unconditionally — it is a safety property, not a feature someone opts out of.</p>
+</section>
+
+<section data-bp-node-id="flag-matrix" id="flag-matrix"><h2 data-sidebar="Feature flags">The flag matrix</h2>
+<p>Every capability is a leaf flag with no hidden coupling; any combination must compile. CI builds three anchor combos — defaults, all features, no default features — on the host, and the ESP32-S3 release target for default and all-features.</p>
+
+<table>
+  <thead><tr><th scope="col">Flag</th><th scope="col">What it compiles in</th><th scope="col">Depends on</th></tr></thead>
+  <tbody>
+    <tr><th scope="row"><code>sensor-decibel</code></th><td>PDM mic front-end + DSP pipeline (per <code>decibel.md</code>); emits decibel (dba, dbc)</td><td>—</td></tr>
+    <tr><th scope="row"><code>sensor-pax</code></th><td>GPIO PIR occupancy front-end; emits pax (occupancy_count)</td><td><code>driver-gpio</code></td></tr>
+    <tr><th scope="row"><code>sensor-bme280</code></th><td>Temperature, humidity, pressure → weather</td><td><code>driver-i2c</code></td></tr>
+    <tr><th scope="row"><code>sensor-sht4x</code></th><td>Temperature, humidity → weather</td><td><code>driver-i2c</code></td></tr>
+    <tr><th scope="row"><code>sensor-scd4x</code></th><td>CO₂ → co2 (new type, one-topic-per-type rule)</td><td><code>driver-i2c</code></td></tr>
+    <tr><th scope="row"><code>sensor-pms5003</code></th><td>PM2.5 → pm25 (new type)</td><td><code>driver-uart</code></td></tr>
+    <tr><th scope="row"><code>sensor-bh1750</code></th><td>Ambient light → light (new type)</td><td><code>driver-i2c</code></td></tr>
+    <tr><th scope="row"><code>transport-http</code></th><td>Wi-Fi + HTTPS JSON ingest (working server path)</td><td><code>net-wifi</code></td></tr>
+    <tr><th scope="row"><code>transport-mqtt</code></th><td>MQTT v2 protobuf client per <code>api/mqtt</code></td><td><code>net-wifi</code>, <code>proto-v2</code></td></tr>
+    <tr><th scope="row"><code>transport-mtls</code></th><td>mTLS client certs from NVS (CN = sensor UUID)</td><td><code>transport-mqtt</code></td></tr>
+    <tr><th scope="row"><code>ota</code></th><td>esp-ota update handling</td><td>—</td></tr>
+    <tr><th scope="row"><code>provisioning</code></th><td>BLE Wi-Fi credential provisioning</td><td><code>net-wifi</code></td></tr>
+    <tr><th scope="row"><code>deep-sleep</code></th><td>Duty-cycled sampling between sleeps</td><td>—</td></tr>
+    <tr><th scope="row"><code>logging-defmt</code></th><td>defmt logging transport</td><td>—</td></tr>
+    <tr><th scope="row"><code>ops-status</code></th><td>Status heartbeat + boot lifecycle (on by default; both contracts expect it)</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<bp-note>The shared plumbing flags (<code>driver-i2c</code>, <code>driver-uart</code>, <code>driver-gpio</code>, <code>net-wifi</code>, <code>proto-v2</code>) are internal — they exist so dependency graphs stay honest and are not part of the public feature matrix.</bp-note>
+</section>
+
+<section data-bp-node-id="sensor-types" id="sensor-types"><h2 data-sidebar="Sensor expansion">Sensor expansion</h2>
+<p>The firmware implements zero sensor types today; the server knows four measurement types. This build ships seven drivers — every one behind its flag, every one feeding the contract's type mapping below. Where the server has no receiver for a type yet, the firmware still emits it per the one-topic-per-type rule; that is deliberate and tracked as a known gap in <a href="#decisions">Decisions</a>.</p>
+
+<table>
+  <thead><tr><th scope="col">Driver</th><th scope="col">Hardware / bus</th><th scope="col">Ingest type (fields)</th><th scope="col">Notes</th></tr></thead>
+  <tbody>
+    <tr><th scope="row">Decibel (PDM mic)</th><td>SPK0641HT4H-1, I2S0 PDM 48 kHz — on-board per <code>decibel.md</code></td><td><code>decibel</code> (<code>dba</code>, <code>dbc</code>)</td><td>Full DSP chain from the design note; per-unit calibration from NVS.</td></tr>
+    <tr><th scope="row">PIR occupancy</th><td>GPIO interrupt front-end (pin from config)</td><td><code>pax</code> (<code>occupancy_count</code>)</td><td>No PIR hardware is documented anywhere in the repo; the driver ships behind its flag with a documented pin convention. It reports PIR detections honestly — not a head-count metric.</td></tr>
+    <tr><th scope="row">BME280</th><td>I2C</td><td><code>weather</code> (<code>temperature</code>, <code>humidity</code>, <code>pressure</code>)</td><td>Server fields exist; precipitation/rain/wind stay unset (those are virtual Open-Meteo fields today).</td></tr>
+    <tr><th scope="row">SHT4x</th><td>I2C</td><td><code>weather</code> (<code>temperature</code>, <code>humidity</code>)</td><td>Alternative to BME280's temp/hum; both compiled → config picks per-device.</td></tr>
+    <tr><th scope="row">SCD4x</th><td>I2C</td><td><code>co2</code> (ppm — new type)</td><td>Follows the one-topic-per-type rule; no server receiver yet.</td></tr>
+    <tr><th scope="row">PMS5003</th><td>UART</td><td><code>pm25</code> (µg/m³ — new type)</td><td>Same new-type rule.</td></tr>
+    <tr><th scope="row">BH1750</th><td>I2C</td><td><code>light</code> (lx — new type)</td><td>Same new-type rule.</td></tr>
+  </tbody>
+</table>
+
+<bp-note>The transport layer is type-agnostic: whatever the registry reports, the active transport encodes and publishes — decibel/pax/weather/status against today's contract, the three new types in the same shape for the server to grow into.</bp-note>
+</section>
+
+<section data-bp-node-id="config-model" id="config-model"><h2 data-sidebar="Configuration">The config file</h2>
+<p>One canonical config file is committed at <code>hardware-firmware/config/default.toml</code>, compiled into the binary as the defaults. At boot the firmware reads NVS overrides on top — sensor identity, credentials, calibration, and any tuned tunables — so a device is configured without a rebuild, and a fresh flash still boots with sane defaults. Secrets (Wi-Fi credentials, API key, client certificate and key) live <strong>only</strong> in NVS; the committed file holds placeholders and never secrets.</p>
+
+<bp-source language="toml" summary="config/default.toml — the runtime config file">
+[sensor]
+id = "00000000-0000-0000-0000-000000000000"  # real UUID lives in NVS
+
+[sampling]
+decibel_window_ms = 1000     # Fast windows are 125 ms inside this
+report_interval_s = 60       # per-type reporting cadence
+offline_buffer    = 64       # measurements held while disconnected
+
+[sensors.bme280]
+i2c_address = 0x76
+[sensors.pir]
+gpio_pin = 4
+
+[transport]
+active = "http"              # "http" | "mqtt"
+http_endpoint = "https://ingest.clubins.de/v1/sensors"
+
+[transport.mqtt]
+broker = "mqtt.clubins.de"
+port   = 8883                # TLS listener; plain 1883 only without mTLS
+
+[decibel]
+overload_threshold_db = 120.0
+calibration_offset_db = 0.0  # per-unit value from NVS at runtime
+</bp-source>
+
+<p>Precedence is one rule, tested on the host: NVS value → <code>config/default.toml</code> value → built-in constant. A config edit re-tunes cadences, thresholds, endpoints, and which compiled transport is active; enabling a capability that was not compiled in is the one thing a config edit cannot do — that is the cargo-flag half, and it is deliberate: flags keep the binary small (Wi-Fi and TLS are the big adders on a 128 KB baseline image).</p>
+</section>
+
+<section data-bp-node-id="verification" id="verification"><h2 data-sidebar="Verification">How we prove it works</h2>
+<p>Every criterion below is checkable by a command or a test run — nothing requires hardware in hand.</p>
+
+<table>
+  <thead><tr><th scope="col">Check</th><th scope="col">Evidence</th><th scope="col">Failure looks like</th></tr></thead>
+  <tbody>
+    <tr><th scope="row">Host CI green</th><td><code>nix-shell --pure --run 'just check'</code> — clippy <code>-D warnings</code>, build, test</td><td>Any clippy warning, build error, or test failure</td></tr>
+    <tr><th scope="row">ESP32-S3 links</th><td>Release build for <code>xtensa-esp32s3-none-elf</code> under default and <code>--all-features</code>; artifact is an Xtensa ELF (rust-lld + <code>-Tlinkall.x</code> + <code>-Zbuild-std=core</code>)</td><td>Linker failure, or a missing target artifact</td></tr>
+    <tr><th scope="row">Flag independence</th><td><code>cargo build --no-default-features</code> plus each leaf feature built alone on host; ESP target for both transports</td><td>Any flag combo that fails to compile, or cross-coupling between leaf flags</td></tr>
+    <tr><th scope="row">Decibel math correct</th><td>Host unit tests: synthetic sines at reference levels → weighted levels within tolerance; overload flags at the threshold; window stats match hand-computed values</td><td>dB error beyond tolerance, overload misfiring, or wrong extrema</td></tr>
+    <tr><th scope="row">Config precedence</th><td>Host tests: NVS override beats <code>default.toml</code>, which beats built-ins; secrets never appear in serialized config</td><td>Wrong precedence or a secret in any serialized/config output</td></tr>
+    <tr><th scope="row">HTTP payload contract-exact</th><td>Golden tests: encoder output field-for-field against the Go structs (<code>sensor_id</code>, <code>apikey</code>, <code>time</code>, <code>measurement_id</code>, <code>dba</code>/<code>dbc</code>, <code>occupancy_count</code>, weather fields, status fields)</td><td>Any field name or type mismatch with <code>server-infra/ingest/service/</code></td></tr>
+    <tr><th scope="row">MQTT conformance</th><td>Host tests: encoded <code>Header</code>/<code>Status</code>/<code>Decibel</code> parse against the <code>.proto</code> files; <code>seq</code> per-topic from 0; <code>boot_id</code> stable within a boot; retained status on connect</td><td>Decode failure against a proto, or lifecycle/seq violations of <code>topics.md</code></td></tr>
+    <tr><th scope="row">Format + security</th><td>treefmt clean; <code>just audit</code> clean</td><td>Format diff or a vulnerable dependency</td></tr>
+    <tr><th scope="row">PRs merge-clean</th><td>Conventional commits; every PR's CI green; required footer with Obvious project/thread/PR links in each PR body</td><td>Red CI, missing footer, or non-conventional commit messages</td></tr>
+  </tbody>
+</table>
+</section>
+
+<section data-bp-node-id="decisions" id="decisions"><h2 data-sidebar="Decisions">Locked decisions, risks, open questions</h2>
+<bp-callout type="locked" label="Locked decisions">
+  <ul>
+    <li>Target stack: esp-hal 1.2.2 on the pinned 1.97.0.0 fork toolchain; no_std device personality, host-tested pure logic; target builds use rust-lld + <code>-Tlinkall.x</code> + <code>-Zbuild-std=core</code>.</li>
+    <li>Capability flags are cargo features; runtime tunables come from the committed <code>config/default.toml</code> with NVS overrides; secrets exist only in NVS.</li>
+    <li>HTTP-JSON is the default transport (works against today's server); MQTT v2 protobuf is implemented to the <code>api/mqtt</code> contract behind its flags; config selects the active transport at runtime.</li>
+    <li>Single crate this build — no workspace migration (it would break the CI diagnostics remap documented in the firmware README).</li>
+    <li>Decibel is implemented exactly per <code>implementation_notes/decibel.md</code>, including per-unit calibration from NVS.</li>
+  </ul>
+</bp-callout>
+
+<h3>Risks the plan must carry</h3>
+<ul>
+  <li><strong>Signed commits.</strong> AGENTS.md requires them; the sandbox has no signing key configured. PR creation is authenticated and will work; if GitHub branch protection rejects unsigned merges, this surfaces at merge time and needs a signing key from Patrick.</li>
+  <li><strong>New ingest types have no server receiver.</strong> co2, pm25, light are emitted per the one-topic-per-type rule but land nowhere until the backend grows endpoints/tables. Firmware-side work is complete without it.</li>
+  <li><strong>MQTT is not end-to-end verifiable.</strong> The broker is deployed but the ingest bridge does not exist; verification is conformance to the proto files and topic rules, not a live round-trip.</li>
+  <li><strong>PIR hardware is unverified.</strong> No PIR is documented in the repo; the pax driver ships behind its flag with a config-chosen pin, honestly reported as motion detections.</li>
+</ul>
+
+<bp-callout type="ref" label="Open questions">
+  <p>None blocking this build. The deliberately deferred product decision — which sensors and transports real deployments want — is answered after this build by editing config and flags, which is the point of the framework. If GitHub rejects merges for unsigned commits, the signing-key setup returns to Patrick.</p>
+</bp-callout>
+</section>
+</main>
+  
+
+</body></html>
