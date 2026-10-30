@@ -220,7 +220,9 @@ pub static SYSTEM_TABLE: &[StateDef<SCtx>] = &[
     },
 ];
 
-/// Signals the system machine subscribes to on the dispatcher.
+/// Signals the system machine subscribes to on the dispatcher. `SIG_FAULT`
+/// is here on purpose: the root's catch-all fault latch only works if
+/// dispatcher-delivered faults actually reach this machine.
 pub static SYSTEM_SUBSCRIPTIONS: &[Signal] = &[
     Signal::INIT,
     SIG_BOOT_DONE,
@@ -232,6 +234,7 @@ pub static SYSTEM_SUBSCRIPTIONS: &[Signal] = &[
     SIG_SLEEP,
     SIG_WAKE,
     SIG_STATUS_HEARTBEAT,
+    SIG_FAULT,
 ];
 
 /// The system machine packaged for the dispatcher, with post-dispatch
