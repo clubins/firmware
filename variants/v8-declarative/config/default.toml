@@ -1,0 +1,62 @@
+# Clubins device configuration — compiled into the binary as the defaults.
+#
+# Precedence is one rule (spec §Configuration), tested on the host:
+#
+#     NVS value  >  config/default.toml value  >  built-in constant
+#
+# This file is the middle rung: the operator-editable defaults a fresh
+# flash boots with. Real device identity, credentials, and per-unit
+# calibration arrive at boot as NVS overrides on top — a device is
+# configured without a rebuild.
+#
+# Secrets (Wi-Fi credentials, API key, client certificate and key) live
+# ONLY in NVS, never here — the schema has no field that could hold one,
+# and a debug-assert tripwire on serialized config output keeps it that
+# way. See src/config.rs (SECRET_MARKERS) and src/nvs.rs (Secrets).
+#
+# In V8 the pipeline graph lives next door in pipelines.toml: cadences and
+# per-pipeline thresholds are declared there; the tunables below are the
+# device-level values that are not part of any one pipeline (identity,
+# buffering, hardware addresses, which transport is active). A config edit
+# retunes; only a cargo flag can enable a capability that is not compiled
+# in — the boot aborts loudly if `transport.active` names a transport
+# whose feature is off.
+
+[sensor]
+# Device identity. The all-zero placeholder stands in for the real UUID,
+# which is provisioned into NVS and never committed here.
+id = "00000000-0000-0000-0000-000000000000"
+
+[sampling]
+# Outer decibel report window; the Fast windows (125 ms) live inside it.
+decibel_window_ms = 1000
+# Per-type reporting cadence budget.
+report_interval_s = 60
+# Measurements held while disconnected, flushed on reconnect.
+offline_buffer = 64
+
+[sensors.bme280]
+# 7-bit I2C address.
+i2c_address = 0x76
+
+[sensors.pir]
+# GPIO the PIR front-end watches.
+gpio_pin = 4
+
+[transport]
+# Which transport is active: "http" | "mqtt". Both may be compiled in;
+# this selects the one that runs.
+active = "http"
+http_endpoint = "https://ingest.clubins.de/v1/sensors"
+
+[transport.mqtt]
+broker = "mqtt.clubins.de"
+# TLS listener; plain 1883 only without mTLS.
+port = 8883
+
+[decibel]
+# Level at which the DSP flags an overload.
+overload_threshold_db = 120.0
+# Per-unit calibration value arrives from NVS at runtime; this is the
+# un-calibrated neutral default.
+calibration_offset_db = 0.0

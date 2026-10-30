@@ -14,6 +14,12 @@
 //! - [`measurement`] — the typed measurement model a pipeline produces;
 //! - [`http_json`] — the HTTP JSON ingest codec (`transport-http` feature),
 //!   field-exact against the Go ingest structs;
+//! - [`config`] — the device config: committed `config/default.toml`
+//!   resolved over built-in constants (unknown keys tolerated with a warn
+//!   list; serialization carries a secret-exclusion tripwire);
+//! - [`nvs`] — the NVS override layer: the top precedence rung, a
+//!   warn-and-skip posture, and the injectable override source (the
+//!   flash-backed source impl is device-side, behind `esp32s3`);
 //! - [`ops`] — flag-gated operations capabilities (OTA, provisioning, …).
 //!
 //! Pure logic throughout: everything here is `no_std`-compatible with
@@ -21,10 +27,12 @@
 #![cfg_attr(not(test), no_std)]
 extern crate alloc;
 
+pub mod config;
 pub mod decl;
 pub mod engine;
 pub mod graph;
 pub mod measurement;
+pub mod nvs;
 pub mod ops;
 pub mod registry;
 
