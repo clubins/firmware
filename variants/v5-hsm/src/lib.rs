@@ -40,10 +40,16 @@ pub mod sensors {
     pub mod bus;
     // Time is shared across transports, so the clock is compiled for
     // either driver family.
-    #[cfg(any(feature = "driver-i2c", feature = "driver-uart"))]
+    #[cfg(any(
+        feature = "driver-i2c",
+        feature = "driver-uart",
+        feature = "driver-gpio"
+    ))]
     pub mod clock;
     #[cfg(feature = "sensor-decibel")]
     pub mod decibel;
+    #[cfg(feature = "driver-gpio")]
+    pub mod gpio;
     #[cfg(feature = "sensor-pax")]
     pub mod pax;
     #[cfg(feature = "sensor-pms5003")]
