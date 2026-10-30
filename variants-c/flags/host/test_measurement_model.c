@@ -84,8 +84,8 @@ void test_registry_ingest_types_are_measurement_types(void)
     /* cap_registry.c maps sensor capabilities to ingest types by its own
      * string literals; both tables must draw from the same contract. */
     const clubins_cap_id_t sensor_caps[] = {
-        CLUBINS_CAP_SENSOR_DECIBEL, CLUBINS_CAP_SENSOR_PAX,       CLUBINS_CAP_SENSOR_BME280,
-        CLUBINS_CAP_SENSOR_SHT4X,   CLUBINS_CAP_SENSOR_SCD4X,     CLUBINS_CAP_SENSOR_PMS5003,
+        CLUBINS_CAP_SENSOR_DECIBEL, CLUBINS_CAP_SENSOR_PAX,   CLUBINS_CAP_SENSOR_BME280,
+        CLUBINS_CAP_SENSOR_SHT4X,   CLUBINS_CAP_SENSOR_SCD4X, CLUBINS_CAP_SENSOR_PMS5003,
         CLUBINS_CAP_SENSOR_BH1750,
     };
     for (size_t i = 0; i < sizeof(sensor_caps) / sizeof(sensor_caps[0]); i++) {
@@ -115,14 +115,12 @@ void test_measurement_equal_compares_payload_and_status_strings(void)
     const clubins_measurement_t c = {.type = CLUBINS_MEAS_PAX, .as.pax = {.occupancy_count = 0}};
     TEST_ASSERT_FALSE(clubins_measurement_equal(&a, &c)); /* different type */
 
-    const clubins_measurement_t s1 = {.type = CLUBINS_MEAS_STATUS,
-                                      .as.status = {.result = CLUBINS_STATUS_SUCCESS,
-                                                    .subsystem = "power",
-                                                    .message = NULL}};
-    const clubins_measurement_t s2 = {.type = CLUBINS_MEAS_STATUS,
-                                      .as.status = {.result = CLUBINS_STATUS_SUCCESS,
-                                                    .subsystem = "power",
-                                                    .message = ""}};
+    const clubins_measurement_t s1 = {
+        .type = CLUBINS_MEAS_STATUS,
+        .as.status = {.result = CLUBINS_STATUS_SUCCESS, .subsystem = "power", .message = NULL}};
+    const clubins_measurement_t s2 = {
+        .type = CLUBINS_MEAS_STATUS,
+        .as.status = {.result = CLUBINS_STATUS_SUCCESS, .subsystem = "power", .message = ""}};
     /* NULL and "" render identically on the wire — equal. */
     TEST_ASSERT_TRUE(clubins_measurement_equal(&s1, &s2));
 

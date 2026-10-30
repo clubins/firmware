@@ -89,8 +89,9 @@ typedef struct {
  * credentials first, then the id, then the type's fields. Weather emits
  * only the model fields that are set — absent readings are absent from
  * the wire, never zero (the ingest service's own rule). */
-clubins_http_json_result_t clubins_http_json_encode_request(
-    const clubins_http_ingest_request_t *req, char *buf, size_t cap, size_t *out_len);
+clubins_http_json_result_t
+clubins_http_json_encode_request(const clubins_http_ingest_request_t *req, char *buf, size_t cap,
+                                 size_t *out_len);
 
 /** The ingest service's response body (service.go writeJSON):
  * {"status":"accepted"} on success, {"error":"..."} otherwise. The
@@ -142,8 +143,9 @@ typedef struct {
  * server-shaped bodies (unknown keys skipped, wrong types rejected). The
  * first type-specific key fixes the measurement type; a second family's
  * key is a TYPE_MISMATCH, mirroring that one POST carries one type. */
-clubins_http_json_result_t clubins_http_json_decode_request(const char *json, size_t len,
-                                                            clubins_http_ingest_request_view_t *out);
+clubins_http_json_result_t
+clubins_http_json_decode_request(const char *json, size_t len,
+                                 clubins_http_ingest_request_view_t *out);
 
 #ifdef __cplusplus
 }

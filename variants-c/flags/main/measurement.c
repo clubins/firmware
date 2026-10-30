@@ -60,8 +60,7 @@ bool clubins_measurement_equal(const clubins_measurement_t *a, const clubins_mea
         return false;
     }
     switch (a->type) {
-    case CLUBINS_MEAS_STATUS:
-    {
+    case CLUBINS_MEAS_STATUS: {
         /* Strings first: NULL renders as "" on the wire, so two NULLs and
          * two empty strings are the same status. */
         const char *a_sub = (a->as.status.subsystem != NULL) ? a->as.status.subsystem : "";

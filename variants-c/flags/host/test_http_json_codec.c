@@ -52,9 +52,8 @@ static size_t encode_ok(const clubins_http_ingest_request_t *req, char *buf, siz
 
 static void test_encode_decibel_exact_bytes(void)
 {
-    clubins_http_ingest_request_t req =
-        base_request((clubins_measurement_t){.type = CLUBINS_MEAS_DECIBEL,
-                                             .as.decibel = {.dba = 654, .dbc = 700}});
+    clubins_http_ingest_request_t req = base_request((clubins_measurement_t){
+        .type = CLUBINS_MEAS_DECIBEL, .as.decibel = {.dba = 654, .dbc = 700}});
     char buf[BUF_CAP];
     const size_t len = encode_ok(&req, buf, sizeof(buf));
 
@@ -70,9 +69,8 @@ static void test_encode_decibel_exact_bytes(void)
 
 static void test_encode_pax_omits_absent_measurement_id(void)
 {
-    clubins_http_ingest_request_t req =
-        base_request((clubins_measurement_t){.type = CLUBINS_MEAS_PAX,
-                                             .as.pax = {.occupancy_count = 3}});
+    clubins_http_ingest_request_t req = base_request(
+        (clubins_measurement_t){.type = CLUBINS_MEAS_PAX, .as.pax = {.occupancy_count = 3}});
     req.measurement_id = NULL; /* the server then generates a UUIDv7 */
     char buf[BUF_CAP];
     encode_ok(&req, buf, sizeof(buf));
@@ -121,11 +119,9 @@ static void test_encode_weather_emits_only_set_fields(void)
 
 static void test_encode_status_uses_status_id_and_closed_vocabulary(void)
 {
-    clubins_http_ingest_request_t req =
-        base_request((clubins_measurement_t){.type = CLUBINS_MEAS_STATUS,
-                                             .as.status = {.result = CLUBINS_STATUS_SUCCESS,
-                                                           .subsystem = "power",
-                                                           .message = NULL}});
+    clubins_http_ingest_request_t req = base_request((clubins_measurement_t){
+        .type = CLUBINS_MEAS_STATUS,
+        .as.status = {.result = CLUBINS_STATUS_SUCCESS, .subsystem = "power", .message = NULL}});
     req.measurement_id = NULL;
     req.status_id = STATUS_ID;
     char buf[BUF_CAP];
@@ -167,9 +163,8 @@ static void test_encode_rejects_missing_credentials_and_off_http_types(void)
     char buf[BUF_CAP];
     size_t len = 0;
 
-    clubins_http_ingest_request_t no_sensor =
-        base_request((clubins_measurement_t){.type = CLUBINS_MEAS_PAX,
-                                             .as.pax = {.occupancy_count = 1}});
+    clubins_http_ingest_request_t no_sensor = base_request(
+        (clubins_measurement_t){.type = CLUBINS_MEAS_PAX, .as.pax = {.occupancy_count = 1}});
     no_sensor.sensor_id = NULL; /* JSON null is a server 400 — refuse */
     TEST_ASSERT_EQUAL_INT(CLUBINS_HTTP_JSON_ERR_NOT_ENCODABLE,
                           clubins_http_json_encode_request(&no_sensor, buf, sizeof(buf), &len));
@@ -184,8 +179,8 @@ static void test_encode_rejects_missing_credentials_and_off_http_types(void)
     pm25.measurement_id = NULL;
     TEST_ASSERT_EQUAL_INT(CLUBINS_HTTP_JSON_ERR_NOT_ENCODABLE,
                           clubins_http_json_encode_request(&pm25, buf, sizeof(buf), &len));
-    clubins_http_ingest_request_t light = base_request(
-        (clubins_measurement_t){.type = CLUBINS_MEAS_LIGHT, .as.light = {.lux = 540}});
+    clubins_http_ingest_request_t light =
+        base_request((clubins_measurement_t){.type = CLUBINS_MEAS_LIGHT, .as.light = {.lux = 540}});
     light.measurement_id = NULL;
     TEST_ASSERT_EQUAL_INT(CLUBINS_HTTP_JSON_ERR_NOT_ENCODABLE,
                           clubins_http_json_encode_request(&light, buf, sizeof(buf), &len));
@@ -193,9 +188,8 @@ static void test_encode_rejects_missing_credentials_and_off_http_types(void)
 
 static void test_encode_truncation_reports_required_length_and_overruns_nothing(void)
 {
-    clubins_http_ingest_request_t req =
-        base_request((clubins_measurement_t){.type = CLUBINS_MEAS_PAX,
-                                             .as.pax = {.occupancy_count = 3}});
+    clubins_http_ingest_request_t req = base_request(
+        (clubins_measurement_t){.type = CLUBINS_MEAS_PAX, .as.pax = {.occupancy_count = 3}});
     req.measurement_id = NULL;
     char buf[BUF_CAP];
     memset(buf, 0, sizeof(buf));
@@ -237,8 +231,8 @@ static void test_decode_round_trips_every_http_type(void)
                         .humidity_pct = 48,
                         .has_pressure = true,
                         .pressure_hpa = 1013}},
-        {.type = CLUBINS_MEAS_WEATHER, .as.weather = {.has_temperature = true,
-                                                      .temperature_c = -52}},
+        {.type = CLUBINS_MEAS_WEATHER,
+         .as.weather = {.has_temperature = true, .temperature_c = -52}},
         {.type = CLUBINS_MEAS_STATUS,
          .as.status = {.result = CLUBINS_STATUS_SUCCESS, .subsystem = "power", .message = ""}},
     };
@@ -273,25 +267,22 @@ static void test_decode_round_trips_every_http_type(void)
 
 static void test_decode_tolerates_unknown_keys_like_the_server(void)
 {
-    clubins_http_ingest_request_t req =
-        base_request((clubins_measurement_t){.type = CLUBINS_MEAS_DECIBEL,
-                                             .as.decibel = {.dba = 654, .dbc = 700}});
+    clubins_http_ingest_request_t req = base_request((clubins_measurement_t){
+        .type = CLUBINS_MEAS_DECIBEL, .as.decibel = {.dba = 654, .dbc = 700}});
     char buf[BUF_CAP];
     encode_ok(&req, buf, sizeof(buf));
 
     /* venue_id and location are refused-if-sent on the real path but the
      * server's decoder skips any unknown key — the view mirrors that. */
     char with_unknown[BUF_CAP];
-    const int written =
-        snprintf(with_unknown, sizeof(with_unknown),
-                 "{\"venue_id\":\"v\",\"location\":\"l\",\"future\":{\"a\":[1,2,null,true]},%s",
-                 buf + 1);
+    const int written = snprintf(
+        with_unknown, sizeof(with_unknown),
+        "{\"venue_id\":\"v\",\"location\":\"l\",\"future\":{\"a\":[1,2,null,true]},%s", buf + 1);
     TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(with_unknown));
 
     clubins_http_ingest_request_view_t view;
-    TEST_ASSERT_EQUAL_INT(CLUBINS_HTTP_JSON_OK,
-                          clubins_http_json_decode_request(with_unknown, strlen(with_unknown),
-                                                           &view));
+    TEST_ASSERT_EQUAL_INT(CLUBINS_HTTP_JSON_OK, clubins_http_json_decode_request(
+                                                    with_unknown, strlen(with_unknown), &view));
     TEST_ASSERT_EQUAL_STRING(SENSOR_ID, view.sensor_id);
     TEST_ASSERT_EQUAL_UINT(654, view.measurement.as.decibel.dba);
 }
@@ -345,14 +336,14 @@ static void test_decode_rejects_unrepresentable_values(void)
     TEST_ASSERT_EQUAL_INT(CLUBINS_HTTP_JSON_ERR_VALUE_UNREPRESENTABLE, r);
 
     /* Outside the closed result vocabulary. */
-    r = clubins_http_json_decode_request("{\"result\":\"broke\"}",
-                                         strlen("{\"result\":\"broke\"}"), &view);
+    r = clubins_http_json_decode_request("{\"result\":\"broke\"}", strlen("{\"result\":\"broke\"}"),
+                                         &view);
     TEST_ASSERT_EQUAL_INT(CLUBINS_HTTP_JSON_ERR_VALUE_UNREPRESENTABLE, r);
 
     /* Past the model field's width for pressure (u16 tenths of nothing —
      * hPa fits easily; 100000 hPa does not). */
-    r = clubins_http_json_decode_request("{\"pressure\":100000}",
-                                         strlen("{\"pressure\":100000}"), &view);
+    r = clubins_http_json_decode_request("{\"pressure\":100000}", strlen("{\"pressure\":100000}"),
+                                         &view);
     TEST_ASSERT_EQUAL_INT(CLUBINS_HTTP_JSON_ERR_VALUE_UNREPRESENTABLE, r);
 }
 
@@ -372,7 +363,8 @@ static void test_decode_response_status_error_and_whitespace(void)
 
     /* The server's json.Encoder appends a newline — tolerated. */
     TEST_ASSERT_EQUAL_INT(CLUBINS_HTTP_JSON_OK, clubins_http_json_decode_response(
-                                                    "{\"status\":\"accepted\"}\n", strlen("{\"status\":\"accepted\"}\n"), &resp));
+                                                    "{\"status\":\"accepted\"}\n",
+                                                    strlen("{\"status\":\"accepted\"}\n"), &resp));
     TEST_ASSERT_EQUAL_INT(CLUBINS_HTTP_RESPONSE_STATUS, resp.kind);
     TEST_ASSERT_EQUAL_STRING("accepted", resp.text);
 
@@ -402,9 +394,8 @@ static void test_decode_response_field_too_long_is_reported(void)
     const char *long_error = "{\"error\":\"0123456789012345678901234567890123456789"
                              "01234567890123456789012345678901234567890123456789012345678901234567"
                              "89\"}";
-    TEST_ASSERT_EQUAL_INT(
-        CLUBINS_HTTP_JSON_ERR_FIELD_TOO_LONG,
-        clubins_http_json_decode_response(long_error, strlen(long_error), &resp));
+    TEST_ASSERT_EQUAL_INT(CLUBINS_HTTP_JSON_ERR_FIELD_TOO_LONG,
+                          clubins_http_json_decode_response(long_error, strlen(long_error), &resp));
 }
 
 static void test_decode_rejects_malformed_json(void)
@@ -438,8 +429,8 @@ static void test_decode_rejects_malformed_json(void)
 static void test_decode_unescapes_strings(void)
 {
     clubins_http_ingest_request_view_t view;
-    const char *body =
-        "{\"subsystem\":\"power\",\"result\":\"failed\",\"message\":\"line\\nbreak \\u00e9 \\\"q\\\"\"}";
+    const char *body = "{\"subsystem\":\"power\",\"result\":\"failed\",\"message\":\"line\\nbreak "
+                       "\\u00e9 \\\"q\\\"\"}";
     TEST_ASSERT_EQUAL_INT(CLUBINS_HTTP_JSON_OK,
                           clubins_http_json_decode_request(body, strlen(body), &view));
     TEST_ASSERT_EQUAL_STRING("line\nbreak \xC3\xA9 \"q\"", view.message);

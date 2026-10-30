@@ -39,8 +39,8 @@ static void ob_put_mem(ob_t *ob, const char *s, size_t n)
 }
 
 /** pow10 up to 1e9 — far past the scales this codec uses. */
-static const uint32_t s_pow10[10] = {1u,        10u,       100u,       1000u,     10000u,
-                                     100000u,   1000000u,  10000000u,  100000000u, 1000000000u};
+static const uint32_t s_pow10[10] = {1u,      10u,      100u,      1000u,      10000u,
+                                     100000u, 1000000u, 10000000u, 100000000u, 1000000000u};
 
 /** Render an unsigned integer in plain decimal. */
 static void ob_put_uint(ob_t *ob, uint32_t value)
@@ -243,8 +243,7 @@ clubins_http_json_encode_request(const clubins_http_ingest_request_t *req, char 
     }
     /* co2, pm25, light have no HTTP ingest endpoint — MQTT topics only. */
     if ((size_t)req->measurement.type >= CLUBINS_MEAS_TYPE_COUNT ||
-        req->measurement.type == CLUBINS_MEAS_CO2 ||
-        req->measurement.type == CLUBINS_MEAS_PM25 ||
+        req->measurement.type == CLUBINS_MEAS_CO2 || req->measurement.type == CLUBINS_MEAS_PM25 ||
         req->measurement.type == CLUBINS_MEAS_LIGHT) {
         return CLUBINS_HTTP_JSON_ERR_NOT_ENCODABLE;
     }
@@ -488,9 +487,8 @@ static clubins_http_json_result_t parse_fixed_number(cur_t *c, unsigned scale, b
                                                      int32_t *out)
 {
     skip_ws(c);
-    if (c->p < c->end &&
-        (*c->p == '"' || *c->p == '{' || *c->p == '[' || *c->p == 't' || *c->p == 'f' ||
-         *c->p == 'n')) {
+    if (c->p < c->end && (*c->p == '"' || *c->p == '{' || *c->p == '[' || *c->p == 't' ||
+                          *c->p == 'f' || *c->p == 'n')) {
         /* A value of another JSON type where the contract wants a number —
          * the server's own decode failure (encoding/json type error). */
         return CLUBINS_HTTP_JSON_ERR_TYPE_MISMATCH;
@@ -553,9 +551,8 @@ static clubins_http_json_result_t skip_number(cur_t *c)
 {
     skip_ws(c);
     const char *start = c->p;
-    while (c->p < c->end &&
-           ((*c->p >= '0' && *c->p <= '9') || *c->p == '-' || *c->p == '+' || *c->p == '.' ||
-            *c->p == 'e' || *c->p == 'E')) {
+    while (c->p < c->end && ((*c->p >= '0' && *c->p <= '9') || *c->p == '-' || *c->p == '+' ||
+                             *c->p == '.' || *c->p == 'e' || *c->p == 'E')) {
         c->p++;
     }
     bool saw_digit = false;
@@ -782,15 +779,23 @@ static req_key_t classify_key(const char *key)
         const char *name;
         req_key_t id;
     } table[] = {
-        {"sensor_id", KEY_SENSOR_ID},         {"apikey", KEY_APIKEY},
-        {"time", KEY_TIME},                   {"measurement_id", KEY_MEASUREMENT_ID},
-        {"status_id", KEY_STATUS_ID},         {"subsystem", KEY_SUBSYSTEM},
-        {"message", KEY_MESSAGE},             {"dba", KEY_DBA},
-        {"dbc", KEY_DBC},                     {"occupancy_count", KEY_OCCUPANCY_COUNT},
-        {"temperature", KEY_TEMPERATURE},     {"humidity", KEY_HUMIDITY},
-        {"pressure", KEY_PRESSURE},           {"precipitation", KEY_PRECIPITATION},
+        {"sensor_id", KEY_SENSOR_ID},
+        {"apikey", KEY_APIKEY},
+        {"time", KEY_TIME},
+        {"measurement_id", KEY_MEASUREMENT_ID},
+        {"status_id", KEY_STATUS_ID},
+        {"subsystem", KEY_SUBSYSTEM},
+        {"message", KEY_MESSAGE},
+        {"dba", KEY_DBA},
+        {"dbc", KEY_DBC},
+        {"occupancy_count", KEY_OCCUPANCY_COUNT},
+        {"temperature", KEY_TEMPERATURE},
+        {"humidity", KEY_HUMIDITY},
+        {"pressure", KEY_PRESSURE},
+        {"precipitation", KEY_PRECIPITATION},
         {"rain_probability", KEY_RAIN_PROBABILITY},
-        {"wind_speed", KEY_WIND_SPEED},       {"result", KEY_RESULT},
+        {"wind_speed", KEY_WIND_SPEED},
+        {"result", KEY_RESULT},
     };
     for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
         if (strcmp(key, table[i].name) == 0) {
@@ -851,9 +856,8 @@ static clubins_meas_type_t key_type(req_key_t key)
     }
 }
 
-clubins_http_json_result_t
-clubins_http_json_decode_request(const char *json, size_t len,
-                                 clubins_http_ingest_request_view_t *out)
+clubins_http_json_result_t clubins_http_json_decode_request(const char *json, size_t len,
+                                                            clubins_http_ingest_request_view_t *out)
 {
     if (out == NULL) {
         return CLUBINS_HTTP_JSON_ERR_BAD_ARGUMENT;
@@ -990,8 +994,8 @@ clubins_http_json_decode_request(const char *json, size_t len,
     return CLUBINS_HTTP_JSON_OK;
 }
 
-clubins_http_json_result_t
-clubins_http_json_decode_response(const char *json, size_t len, clubins_http_response_t *out)
+clubins_http_json_result_t clubins_http_json_decode_response(const char *json, size_t len,
+                                                             clubins_http_response_t *out)
 {
     if (out == NULL) {
         return CLUBINS_HTTP_JSON_ERR_BAD_ARGUMENT;

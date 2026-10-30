@@ -83,9 +83,8 @@ static void assert_conforms(const char *name, const clubins_http_ingest_request_
 
     char reencoded[FIXTURE_CAP];
     size_t len = 0;
-    TEST_ASSERT_EQUAL_INT(CLUBINS_HTTP_JSON_OK,
-                          clubins_http_json_encode_request(request, reencoded, sizeof(reencoded),
-                                                           &len));
+    TEST_ASSERT_EQUAL_INT(CLUBINS_HTTP_JSON_OK, clubins_http_json_encode_request(
+                                                    request, reencoded, sizeof(reencoded), &len));
     TEST_ASSERT_EQUAL_UINT(fixture_len, len);
     TEST_ASSERT_EQUAL_MEMORY(fixture, reencoded, fixture_len);
 
@@ -99,25 +98,25 @@ static void assert_conforms(const char *name, const clubins_http_ingest_request_
 
 static void test_fixture_request_decibel(void)
 {
-    clubins_http_ingest_request_t req = {.sensor_id = SENSOR_ID,
-                                         .apikey = APIKEY,
-                                         .time = TIME,
-                                         .measurement_id = MEASUREMENT_ID,
-                                         .status_id = NULL,
-                                         .measurement = {.type = CLUBINS_MEAS_DECIBEL,
-                                                         .as.decibel = {.dba = 654, .dbc = 700}}};
+    clubins_http_ingest_request_t req = {
+        .sensor_id = SENSOR_ID,
+        .apikey = APIKEY,
+        .time = TIME,
+        .measurement_id = MEASUREMENT_ID,
+        .status_id = NULL,
+        .measurement = {.type = CLUBINS_MEAS_DECIBEL, .as.decibel = {.dba = 654, .dbc = 700}}};
     assert_conforms("request-decibel.json", &req);
 }
 
 static void test_fixture_request_pax(void)
 {
-    clubins_http_ingest_request_t req = {.sensor_id = SENSOR_ID,
-                                         .apikey = APIKEY,
-                                         .time = TIME,
-                                         .measurement_id = NULL, /* server mints a UUIDv7 */
-                                         .status_id = NULL,
-                                         .measurement = {.type = CLUBINS_MEAS_PAX,
-                                                         .as.pax = {.occupancy_count = 3}}};
+    clubins_http_ingest_request_t req = {
+        .sensor_id = SENSOR_ID,
+        .apikey = APIKEY,
+        .time = TIME,
+        .measurement_id = NULL, /* server mints a UUIDv7 */
+        .status_id = NULL,
+        .measurement = {.type = CLUBINS_MEAS_PAX, .as.pax = {.occupancy_count = 3}}};
     assert_conforms("request-pax.json", &req);
 
     char fixture[FIXTURE_CAP];
@@ -130,69 +129,65 @@ static void test_fixture_request_pax(void)
 
 static void test_fixture_request_weather_sht4x(void)
 {
-    clubins_http_ingest_request_t req = {
-        .sensor_id = SENSOR_ID,
-        .apikey = APIKEY,
-        .time = TIME,
-        .measurement_id = MEASUREMENT_ID,
-        .status_id = NULL,
-        .measurement = {.type = CLUBINS_MEAS_WEATHER,
-                        .as.weather = {.has_temperature = true,
-                                       .temperature_c = 215,
-                                       .has_humidity = true,
-                                       .humidity_pct = 48,
-                                       .has_pressure = false,
-                                       .pressure_hpa = 0}}};
+    clubins_http_ingest_request_t req = {.sensor_id = SENSOR_ID,
+                                         .apikey = APIKEY,
+                                         .time = TIME,
+                                         .measurement_id = MEASUREMENT_ID,
+                                         .status_id = NULL,
+                                         .measurement = {.type = CLUBINS_MEAS_WEATHER,
+                                                         .as.weather = {.has_temperature = true,
+                                                                        .temperature_c = 215,
+                                                                        .has_humidity = true,
+                                                                        .humidity_pct = 48,
+                                                                        .has_pressure = false,
+                                                                        .pressure_hpa = 0}}};
     assert_conforms("request-weather-sht4x.json", &req);
 }
 
 static void test_fixture_request_weather_bme280(void)
 {
-    clubins_http_ingest_request_t req = {
-        .sensor_id = SENSOR_ID,
-        .apikey = APIKEY,
-        .time = TIME,
-        .measurement_id = MEASUREMENT_ID,
-        .status_id = NULL,
-        .measurement = {.type = CLUBINS_MEAS_WEATHER,
-                        .as.weather = {.has_temperature = true,
-                                       .temperature_c = -52,
-                                       .has_humidity = true,
-                                       .humidity_pct = 0,
-                                       .has_pressure = true,
-                                       .pressure_hpa = 1013}}};
+    clubins_http_ingest_request_t req = {.sensor_id = SENSOR_ID,
+                                         .apikey = APIKEY,
+                                         .time = TIME,
+                                         .measurement_id = MEASUREMENT_ID,
+                                         .status_id = NULL,
+                                         .measurement = {.type = CLUBINS_MEAS_WEATHER,
+                                                         .as.weather = {.has_temperature = true,
+                                                                        .temperature_c = -52,
+                                                                        .has_humidity = true,
+                                                                        .humidity_pct = 0,
+                                                                        .has_pressure = true,
+                                                                        .pressure_hpa = 1013}}};
     assert_conforms("request-weather-bme280.json", &req);
 }
 
 static void test_fixture_request_status_success(void)
 {
-    clubins_http_ingest_request_t req = {.sensor_id = SENSOR_ID,
-                                         .apikey = APIKEY,
-                                         .time = TIME,
-                                         .measurement_id = NULL,
-                                         .status_id = STATUS_ID,
-                                         .measurement = {.type = CLUBINS_MEAS_STATUS,
-                                                         .as.status = {.result =
-                                                                           CLUBINS_STATUS_SUCCESS,
-                                                                       .subsystem = "power",
-                                                                       .message = ""}}};
+    clubins_http_ingest_request_t req = {
+        .sensor_id = SENSOR_ID,
+        .apikey = APIKEY,
+        .time = TIME,
+        .measurement_id = NULL,
+        .status_id = STATUS_ID,
+        .measurement = {
+            .type = CLUBINS_MEAS_STATUS,
+            .as.status = {.result = CLUBINS_STATUS_SUCCESS, .subsystem = "power", .message = ""}}};
     assert_conforms("request-status-success.json", &req);
 }
 
 static void test_fixture_request_status_failure_escapes(void)
 {
-    clubins_http_ingest_request_t req = {.sensor_id = SENSOR_ID,
-                                         .apikey = APIKEY,
-                                         .time = TIME,
-                                         .measurement_id = NULL,
-                                         .status_id = STATUS_ID,
-                                         .measurement = {.type = CLUBINS_MEAS_STATUS,
-                                                         .as.status = {.result =
-                                                                           CLUBINS_STATUS_FAILED,
-                                                                       .subsystem = "power",
-                                                                       .message =
-                                                                           "rail \"3v3\" dipped\n"
-                                                                           "below limit"}}};
+    clubins_http_ingest_request_t req = {
+        .sensor_id = SENSOR_ID,
+        .apikey = APIKEY,
+        .time = TIME,
+        .measurement_id = NULL,
+        .status_id = STATUS_ID,
+        .measurement = {.type = CLUBINS_MEAS_STATUS,
+                        .as.status = {.result = CLUBINS_STATUS_FAILED,
+                                      .subsystem = "power",
+                                      .message = "rail \"3v3\" dipped\n"
+                                                 "below limit"}}};
     assert_conforms("request-status-failure.json", &req);
 
     /* The unescaped bytes land intact in the view. */
@@ -222,8 +217,7 @@ static void test_fixture_rejections_match_server_400s(void)
         char fixture[FIXTURE_CAP];
         const size_t len = load_fixture(rejects[i].file, fixture, sizeof(fixture));
         clubins_http_ingest_request_view_t view;
-        const clubins_http_json_result_t r =
-            clubins_http_json_decode_request(fixture, len, &view);
+        const clubins_http_json_result_t r = clubins_http_json_decode_request(fixture, len, &view);
         TEST_ASSERT_EQUAL_INT_MESSAGE(rejects[i].expected, r, rejects[i].file);
     }
 }
