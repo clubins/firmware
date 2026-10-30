@@ -1,0 +1,57 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Default recipe: just picks the first one when no name is given.
+default:
+	@{{ just_executable() }} --list
+
+# Full host gate: format check, clippy -D warnings, build, tests.
+# Run from this directory: nix-shell --pure --run 'just check'
+check: fmt lint build test
+
+# rustfmt against the repo convention (edition 2024, max_width 90).
+fmt:
+	cargo fmt -- --check
+
+# Clippy with warnings fatal, exactly as CI runs it.
+lint:
+	cargo clippy --locked -- -D warnings
+
+build:
+	cargo build --locked
+
+test:
+	cargo test --locked
+
+# ESP32-S3 release ELF on the pinned fork toolchain. Extra features are
+# passed through, e.g.: just build-esp "--all-features"
+#
+# -Zbuild-std=core: the fork ships no prebuilt rust-std for Xtensa, so core
+# is rebuilt for the target. V6 needs only core — the static graph never
+# allocates and no global allocator is registered (see .cargo/config.toml).
+build-esp features='':
+	cargo build --locked --release --target xtensa-esp32s3-none-elf -Zbuild-std=core {{ features }}
+
+# Flag-matrix gate on the host: all-off, each public leaf alone, the
+# integration trio, all-on — every anchor builds AND tests. Every public
+# leaf must compile independently — any failure is a coupling between
+# flags, which the spec forbids.
+flag-matrix:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	leaves="sensor-decibel sensor-pax sensor-bme280 sensor-sht4x sensor-scd4x sensor-pms5003 sensor-bh1750 transport-http transport-mqtt transport-mtls ota provisioning deep-sleep logging-defmt ops-status"
+	echo "== all-off =="
+	cargo build --locked --no-default-features
+	cargo test --locked --no-default-features
+	for flag in $leaves; do
+		echo "== alone: $flag =="
+		cargo build --locked --no-default-features --features "$flag"
+	done
+	echo "== trio: bh1750 + http + mqtt (broadcast integration) =="
+	cargo build --locked --no-default-features --features "sensor-bh1750,transport-http,transport-mqtt"
+	cargo test --locked --no-default-features --features "sensor-bh1750,transport-http,transport-mqtt"
+	echo "== all-on =="
+	cargo build --locked --all-features
+	cargo test --locked --all-features
+
+clean:
+	cargo clean --target-dir target

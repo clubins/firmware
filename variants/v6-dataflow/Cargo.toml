@@ -1,0 +1,54 @@
+[package]
+name = "firmware-v6-dataflow"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "firmware_v6_dataflow"
+
+# Capability flags — spec §Feature Matrix (docs/spec/…build-spec.html).
+# Every public leaf is independent; any combination must compile. The five
+# plumbing flags (driver-i2c, driver-uart, driver-gpio, net-wifi, proto-v2)
+# exist so dependency graphs stay honest and are pulled in by the leaves.
+[features]
+default = ["sensor-decibel", "transport-http", "ops-status"]
+
+# Sensors — each enables its stub (later: driver) and graph node.
+sensor-decibel = []                 # SPK0641HT4H-1 PDM mic, I2S0 @ 48 kHz
+sensor-pax = ["driver-gpio"]        # occupancy front-end (PIR)
+sensor-bme280 = ["driver-i2c"]      # temperature + humidity + pressure
+sensor-sht4x = ["driver-i2c"]       # temperature + humidity
+sensor-scd4x = ["driver-i2c"]       # CO2
+sensor-pms5003 = ["driver-uart"]    # PM2.5 particulates
+sensor-bh1750 = ["driver-i2c"]      # ambient light
+
+# Transports — config selects the active one at runtime.
+transport-http = ["net-wifi"]             # working JSON ingest
+transport-mqtt = ["net-wifi", "proto-v2"] # MQTT v2 protobuf contract
+transport-mtls = ["transport-mqtt"]       # client certs from NVS
+
+# Ops
+ota = []
+provisioning = ["net-wifi"]
+deep-sleep = []
+logging-defmt = []
+ops-status = []
+
+# Internal plumbing (not part of the public matrix).
+driver-i2c = []
+driver-uart = []
+driver-gpio = []
+net-wifi = []
+proto-v2 = []
+
+# The device personality pulls esp-hal only on the Xtensa target, so host
+# builds and tests (the fast CI path) never compile it.
+[target.'cfg(target_arch = "xtensa")'.dependencies]
+esp-hal = { version = "=1.2.2", features = ["esp32s3"] }
+
+[profile.release]
+opt-level = "z"
+codegen-units = 1
+lto = "thin"
+panic = "abort"
