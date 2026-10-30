@@ -1,0 +1,40 @@
+# Clubins firmware — variant C (embassy-async) build recipes.
+#
+# Recipes run plain cargo: the pinned toolchain comes from the environment.
+# The standard entry point is `nix-shell --pure --run 'just <recipe>'`
+# (CI uses exactly that). Recipes never re-enter nix-shell — `nix-shell`
+# is not on PATH inside a `--pure` shell.
+
+default:
+    @{{ just_executable() }} --list
+
+# Host CI: format check, lint, build and test the pure-logic personality.
+check: fmt-check lint build test
+
+fmt:
+    cargo fmt
+
+fmt-check:
+    cargo fmt --check
+
+lint:
+    cargo clippy --locked -- -D warnings
+
+build:
+    cargo build --locked
+
+test:
+    cargo test --locked
+
+# Flag matrix: all-off, every public leaf alone, all-on. The device
+# personality is Xtensa-only, so on the host this verifies the feature
+# declarations and the library's cfg arms; the CI xtensa job links the real
+# ELF for default and all-features.
+flag-matrix:
+    bash scripts/flag-matrix.sh
+
+# Release build for the ESP32-S3 (rust-lld + esp-hal linker scripts; the GCC
+# driver cannot link the cross-endian ELF, see .cargo/config.toml).
+# Additional cargo args (e.g. --all-features) pass through.
+xtensa *args:
+    CARGO_UNSTABLE_BUILD_STD=core cargo build --release --locked --target xtensa-esp32s3-none-elf {{args}}
