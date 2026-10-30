@@ -1,0 +1,77 @@
+# CI for the declarative pipeline firmware variant (variants/v8-declarative).
+#
+# GitHub-hosted runners + Nix — this repo has no self-hosted runner.
+# The pinned toolchain comes from the variant's own shell.nix/esp-toolchain.nix;
+# every job runs from the variant directory (no root-level files exist).
+name: ci-v8
+
+on:
+  push:
+    branches: [main]
+    paths: ["variants/v8-declarative/**", ".github/workflows/ci-v8.yml"]
+  pull_request:
+    paths: ["variants/v8-declarative/**", ".github/workflows/ci-v8.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-v8-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-check:
+    name: host check (fmt + clippy + build + test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: variants/v8-declarative
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - run: nix-shell --pure --run 'just check'
+
+  flag-matrix:
+    name: flag matrix (all-off + 15 leaves + all-on, host)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: variants/v8-declarative
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - run: nix-shell --pure --run 'just flag-matrix'
+
+  xtensa:
+    name: xtensa release build (${{ matrix.features }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: variants/v8-declarative
+    strategy:
+      fail-fast: false
+      matrix:
+        features: [default, all-features]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - name: Build release ELF
+        run: |
+          if [ "${{ matrix.features }}" = "all-features" ]; then
+            nix-shell --pure --run 'just build-esp --all-features'
+          else
+            nix-shell --pure --run 'just build-esp'
+          fi
+      - name: Verify the artifact is an Xtensa ELF
+        run: |
+          file target/xtensa-esp32s3-none-elf/release/firmware-v8-declarative | grep -q "Tensilica Xtensa"
+      - name: Upload ELF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-v8-declarative-xtensa-${{ matrix.features }}
+          path: variants/v8-declarative/target/xtensa-esp32s3-none-elf/release/firmware-v8-declarative
+          if-no-files-found: error
