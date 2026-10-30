@@ -1,8 +1,9 @@
 //! Clubins firmware — V5 hierarchical state-machine variant.
 //!
 //! One crate, two personalities (spec §Architecture): the pure-logic modules
-//! here — event model, FSM framework, dispatcher, system machine, capability
-//! stubs — compile and test on the host; everything hardware-bound lives in
+//! here — event model, FSM framework, dispatcher, system machine, typed
+//! measurement model, capability stubs — compile and test on the host;
+//! everything hardware-bound lives in
 //! the target-only bin ([`crate::`]'s sibling `main.rs`) and in `esp-hal`,
 //! declared as a dependency for the Xtensa target only.
 //!
@@ -20,6 +21,7 @@ extern crate alloc;
 pub mod dispatcher;
 pub mod events;
 pub mod fsm;
+pub mod measurement;
 pub mod stubkit;
 pub mod system;
 
