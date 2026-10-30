@@ -32,7 +32,8 @@ use clubins_firmware_v3::session::Sequencer;
 #[cfg(any(
     feature = "sensor-bme280",
     feature = "sensor-sht4x",
-    feature = "sensor-scd4x"
+    feature = "sensor-scd4x",
+    feature = "sensor-pms5003"
 ))]
 use clubins_firmware_v3::sensors::Wait;
 
@@ -53,7 +54,8 @@ impl Sleep for EmbassyClock {
 #[cfg(any(
     feature = "sensor-bme280",
     feature = "sensor-sht4x",
-    feature = "sensor-scd4x"
+    feature = "sensor-scd4x",
+    feature = "sensor-pms5003"
 ))]
 impl Wait for EmbassyClock {
     async fn wait(&mut self, ms: u64) {
@@ -130,14 +132,25 @@ pub(super) async fn decibel_sensor_task(mut measurements: MeasurementSender<'sta
 }
 
 #[cfg(feature = "sensor-pax")]
+use clubins_firmware_v3::sensors::pir::{Pir, run as pir_run};
+
+#[cfg(feature = "sensor-pax")]
 #[embassy_executor::task]
-pub(super) async fn pax_sensor_task(mut measurements: MeasurementSender<'static>) {
-    let mut driver =
-        SkeletonDriver::new("pax-sensor", "GPIO PIR front-end arrives with the pax task");
-    let mut clock = EmbassyClock;
-    let params = SensorTaskParams::built_in();
-    clubins_firmware_v3::sensor::run(&mut driver, &mut clock, &mut measurements, &params)
-        .await;
+pub(super) async fn pax_sensor_task(
+    mut measurements: MeasurementSender<'static>,
+    pin: esp_hal::peripherals::GPIO4<'static>,
+) {
+    // The PIR's front end parks on the pin's own edge interrupts, so the
+    // task body is a dedicated event loop (clubins_firmware_v3::sensors::
+    // pir::run), not the sampling framework: the sensor reports events,
+    // not periodic samples.
+    let mut driver = Pir::new(
+        super::gpio::PirInput::new(pin),
+        EmbassyClock,
+        config::PIR_SETTLE_MS,
+        config::PIR_DEBOUNCE_MS,
+    );
+    pir_run(&mut driver, &mut measurements).await;
 }
 
 #[cfg(feature = "sensor-bme280")]
@@ -193,12 +206,22 @@ pub(super) async fn scd4x_sensor_task(
 }
 
 #[cfg(feature = "sensor-pms5003")]
+use clubins_firmware_v3::sensors::pms5003::Pms5003;
+
+#[cfg(feature = "sensor-pms5003")]
 #[embassy_executor::task]
-pub(super) async fn pms5003_sensor_task(mut measurements: MeasurementSender<'static>) {
-    let mut driver = SkeletonDriver::new(
-        "pms5003-sensor",
-        "UART driver arrives with the pms5003 task",
-    );
+pub(super) async fn pms5003_sensor_task(
+    mut measurements: MeasurementSender<'static>,
+    uart: esp_hal::peripherals::UART1<'static>,
+    rx: esp_hal::peripherals::GPIO18<'static>,
+    tx: esp_hal::peripherals::GPIO17<'static>,
+) {
+    // esp-hal's async UART is `!Send`, so the controller is built here,
+    // inside the spawned future, from the `Send` peripheral tokens. U1RXD
+    // is GPIO18 (the sensor's TX feeds it), U1TXD is GPIO17 (commands out
+    // to the sensor).
+    let mut driver =
+        Pms5003::new(super::uart::SensorUart::new(uart, rx, tx), EmbassyClock);
     let mut clock = EmbassyClock;
     let params = SensorTaskParams::built_in();
     clubins_firmware_v3::sensor::run(&mut driver, &mut clock, &mut measurements, &params)

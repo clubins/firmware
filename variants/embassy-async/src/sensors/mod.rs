@@ -7,7 +7,7 @@
 //! [`SensorDriver`](crate::sensor::SensorDriver) (init → calibrate → sample),
 //! converting wire bytes into the payload type its ingest topic speaks.
 //!
-//! Shared seams live here and in [`i2c`]:
+//! Shared seams live here, in [`gpio`], [`i2c`], and [`uart`]:
 //!
 //! - [`Wait`] — the driver-level time seam, the sibling of the framework's
 //!   `sensor::Sleep`. `Sleep` spaces the *task's* steps (the sampling
@@ -17,20 +17,30 @@
 //!   `no_std` library never imports `embassy-time`, so the register flows
 //!   run on the host against a recorded, deterministic wait.
 //!
-//! On the device, `device/tasks.rs` constructs each driver over the shared
-//! I2C controller and hands it to `sensor::run`; on the host,
-//! `sensors::i2c::fakes::ScriptedI2c` scripts the bus transactions.
+//! On the device, `device/tasks.rs` constructs each driver over its front
+//! end — the shared I2C controller, the UART1 controller, the PIR's GPIO
+//! pin — and hands it to the task body (the sampling framework's `run`, or
+//! the PIR's dedicated event loop); on the host, the seams' `fakes`
+//! modules script the bus transactions and the edge sequences.
 
 #[cfg(feature = "sensor-bme280")]
 pub mod bme280;
+#[cfg(feature = "driver-gpio")]
+pub mod gpio;
 #[cfg(feature = "driver-i2c")]
 pub mod i2c;
+#[cfg(feature = "sensor-pax")]
+pub mod pir;
+#[cfg(feature = "sensor-pms5003")]
+pub mod pms5003;
 #[cfg(feature = "sensor-scd4x")]
 pub mod scd4x;
 #[cfg(any(feature = "sensor-sht4x", feature = "sensor-scd4x"))]
 pub mod sensirion;
 #[cfg(feature = "sensor-sht4x")]
 pub mod sht4x;
+#[cfg(feature = "driver-uart")]
+pub mod uart;
 
 /// Wait for `ms` milliseconds of hardware time (a conversion window, a
 /// measurement period). Implementations yield the executor while they wait —

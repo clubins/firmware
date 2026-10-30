@@ -125,6 +125,15 @@ pub const BME280_I2C_ADDRESS: u8 = 0x76;
 /// Built-in PIR GPIO pin (`sensors.pir.gpio_pin`).
 pub const PIR_GPIO_PIN: u8 = 4;
 
+/// Built-in PIR warm-up wait (`sensors.pir.settle_ms`): the front end
+/// reports garbage for the first tens of seconds after power-on.
+pub const PIR_SETTLE_MS: u64 = 60_000;
+
+/// Built-in PIR debounce window (`sensors.pir.debounce_ms`): motion
+/// bursts separated by less idle time than this merge into one
+/// detection.
+pub const PIR_DEBOUNCE_MS: u64 = 3_000;
+
 /// Built-in top of the mic's measurement range
 /// (`decibel.overload_threshold_db`).
 pub const OVERLOAD_THRESHOLD_DB: f32 = 120.0;
