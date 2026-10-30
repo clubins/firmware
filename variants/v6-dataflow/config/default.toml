@@ -1,0 +1,67 @@
+# Clubins firmware — committed runtime defaults (V6 dataflow variant).
+#
+# Spec §Configuration: this file is compiled into the binary as the
+# defaults and layered at boot as
+#
+#     built-in constants < this file < NVS overrides
+#
+# so a device is tuned without a rebuild and still boots to sane defaults
+# on a fresh flash. Secrets — Wi-Fi credentials, the ingest API key, the
+# mTLS client certificate and key — live ONLY in NVS (see src/nvs.rs for
+# the key registry); this file holds placeholders and must never hold a
+# real secret.
+#
+# Enabling a capability that was not compiled in is the one thing a config
+# edit cannot do — that is the cargo-flag half (see Cargo.toml). Unknown
+# keys are tolerated with a warning; wrong-typed values on known keys
+# abort the boot parse.
+
+[sensor]
+# Placeholder identity — the real UUID is an NVS override per device.
+id = "00000000-0000-0000-0000-000000000000"
+
+[sampling]
+# Aggregate decibel reporting window. decibel.md's Fast windows (125 ms)
+# fold inside it, so this must be a multiple of 125.
+decibel_window_ms = 1000
+# Per-type reporting cadence.
+report_interval_s = 60
+# Measurements held while disconnected, drained when connectivity returns.
+offline_buffer = 64
+
+[sensors.bme280]
+i2c_address = 0x76
+
+[sensors.sht4x]
+i2c_address = 0x44
+
+[sensors.scd4x]
+i2c_address = 0x62
+
+[sensors.bh1750]
+i2c_address = 0x23
+
+[sensors.pir]
+# GPIO interrupt front-end for occupancy (spec §Sensor Expansion: the PIR
+# reports detections honestly, not a head-count metric).
+gpio_pin = 4
+
+[sensors.pms5003]
+uart_baud = 9600
+
+[transport]
+# Which compiled transport is active: "http" | "mqtt".
+active = "http"
+# HTTPS POST target — one JSON body per measurement.
+http_endpoint = "https://ingest.clubins.de/v1/sensors"
+
+[transport.mqtt]
+broker = "mqtt.clubins.de"
+# TLS listener; plain 1883 only without mTLS.
+port = 8883
+
+[decibel]
+# Above this A-weighted level a window flags an overload (decibel.md).
+overload_threshold_db = 120.0
+# Per-unit calibration — neutral here, the real offset is an NVS override.
+calibration_offset_db = 0.0

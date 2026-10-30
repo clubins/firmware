@@ -19,6 +19,11 @@
 //! - [`ring`] — the universal primitive: lock-free SPSC ring, counted
 //!   reject-newest overflow, consumer-side skip/lag.
 //! - [`cell`] — one-time init `StaticCell` for pinning the graph.
+//! - [`config`] — the runtime schema: committed `config/default.toml`
+//!   compiled in as defaults, NVS overrides on top, secrets NVS-only.
+//! - [`nvs`] — the override layer: an injectable source trait (host
+//!   [`nvs::MemorySource`] in tests/tools, an NVS-backed source on
+//!   device).
 //! - [`measurement`] — the wire-shape `Measurement` enum + ingest names.
 //! - [`dma`] — simulated DMA engines (I2S/PDM, UART) + GPIO ISR producer.
 //! - [`nodekit`] — shared node machinery (measurement rings, `offer`).
@@ -31,10 +36,12 @@
 
 pub mod budget;
 pub mod cell;
+pub mod config;
 pub mod dma;
 pub mod graph;
 pub mod measurement;
 pub mod nodekit;
+pub mod nvs;
 pub mod ring;
 pub mod system;
 
