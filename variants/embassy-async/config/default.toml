@@ -1,13 +1,15 @@
 # Clubins firmware — canonical runtime defaults (variant C, embassy-async).
 #
-# This file is compiled into the binary as the defaults. At boot the firmware
-# reads NVS overrides on top, so a device is tuned without a rebuild and a
-# fresh flash still boots with sane defaults. Precedence rule (tested on the
-# host once the config task lands): NVS value > default.toml value >
-# built-in constant. Until then, src/config.rs carries the same values.
+# This file is compiled into the binary as the defaults (src/config.rs embeds
+# it with include_str!). At boot the firmware reads NVS overrides on top, so
+# a device is tuned without a rebuild and a fresh flash still boots with
+# sane defaults. Precedence rule, host-tested in tests/config_precedence.rs:
+# NVS value > default.toml value > built-in constant (src/config.rs).
 #
 # Secrets (Wi-Fi credentials, API key, client certificate and key) live ONLY
-# in NVS — this file holds placeholders and is committed.
+# in NVS — this file holds placeholders and is committed. A secret key added
+# here would be ignored: secret.* paths are only ever read from the NVS
+# override source, never from this file.
 
 [sensor]
 id = "00000000-0000-0000-0000-000000000000" # real UUID lives in NVS
