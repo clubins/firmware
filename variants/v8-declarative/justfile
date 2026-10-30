@@ -1,0 +1,61 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Default recipe: just picks the first one when no name is given.
+default:
+    @{{ just_executable() }} --list
+
+# Full host gate: format check, clippy -D warnings, build, tests.
+# Run from this directory: nix-shell --pure --run 'just check'
+check: fmt lint build test
+
+# rustfmt against the repo convention (edition 2024, max_width 90).
+fmt:
+    cargo fmt -- --check
+
+# Clippy with warnings fatal, exactly as CI runs it.
+lint:
+    cargo clippy --locked -- -D warnings
+
+build:
+    cargo build --locked
+
+test:
+    cargo test --locked
+
+# Run the engine on the host: instantiates config/pipelines.toml and
+# prints the resolved schedule. A quick sanity check for pipeline edits.
+run:
+    cargo run --locked
+
+# ESP32-S3 release ELF on the pinned fork toolchain. Extra features are
+# passed through, e.g.: just build-esp "--all-features"
+#
+# -Zbuild-std=core,alloc: the fork ships no prebuilt rust-std for Xtensa, so
+# both core and alloc are rebuilt for the target (alloc is not optional —
+# the crate's no_std personality requires it, and rustc fails with E0463
+# on `extern crate alloc` when only core is rebuilt).
+build-esp features='':
+    cargo build --locked --release --target xtensa-esp32s3-none-elf -Zbuild-std=core,alloc {{ features }}
+
+# Flag-matrix gate on the host: all-off, each public leaf alone, all-on.
+# Every public leaf must compile independently — any failure is a coupling
+# between flags, which the spec forbids. The all-off and all-on anchors
+# also run the test suite: the cfg-gated tests (flag-gated instantiation,
+# kind presence) must pass in both worlds, not merely compile.
+flag-matrix:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    leaves="sensor-decibel sensor-pax sensor-bme280 sensor-sht4x sensor-scd4x sensor-pms5003 sensor-bh1750 transport-http transport-mqtt transport-mtls ota provisioning deep-sleep logging-defmt ops-status"
+    echo "== all-off =="
+    cargo build --locked --no-default-features
+    cargo test --locked --no-default-features
+    for flag in $leaves; do
+        echo "== alone: $flag =="
+        cargo build --locked --no-default-features --features "$flag"
+    done
+    echo "== all-on =="
+    cargo build --locked --all-features
+    cargo test --locked --all-features
+
+clean:
+    cargo clean --target-dir target
