@@ -10,7 +10,10 @@
 //! - [`decl`] — typed view over the pipelines document (`no_std` parser);
 //! - [`registry`] — the feature-gated kinds and their parameter schemas;
 //! - [`graph`] — boot-time validation (kinds, params, refs, cycles, cadences);
-//! - [`engine`] — instantiation and the cadence scheduler;
+//! - [`runtime`] — the execution state built per validated instance
+//!   (source/stage/sink executors and per-pipeline stream buffers);
+//! - [`engine`] — instantiation, `pipe` wiring, and the cadence scheduler
+//!   that executes due pipelines;
 //! - [`measurement`] — the typed measurement model a pipeline produces;
 //! - [`http_json`] — the HTTP JSON ingest codec (`transport-http` feature),
 //!   field-exact against the Go ingest structs;
@@ -35,6 +38,7 @@ pub mod measurement;
 pub mod nvs;
 pub mod ops;
 pub mod registry;
+pub mod runtime;
 
 /// The HTTP JSON ingest codec — exists only when the device has an HTTP
 /// transport to feed it to.

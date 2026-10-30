@@ -4,11 +4,13 @@
 //! validate + instantiate it (a bad declaration fails the boot loudly), then
 //! run the forever loop driving the cadence scheduler. The hardware buses
 //! behind the source/stage/sink kinds land with the downstream driver PRs;
-//! this scaffold proves the graph instantiates and the schedule runs.
+//! hardware sources are `Pending` until then — their pipelines validate,
+//! schedule, and idle.
 //!
 //! Host builds of the bin target stay std on purpose: `cargo run` executes
-//! the same boot path and prints the resolved schedule, so pipeline edits
-//! can be sanity-checked without the Xtensa toolchain.
+//! the same boot path over a simulated time horizon and reports what each
+//! pipeline delivered, so pipeline edits can be sanity-checked without the
+//! Xtensa toolchain.
 #![cfg_attr(target_arch = "xtensa", no_std, no_main)]
 
 use firmware_v8_declarative::decl::Pipelines;
@@ -21,15 +23,15 @@ const PIPELINES_TOML: &str = include_str!("../config/pipelines.toml");
 #[cfg(target_arch = "xtensa")]
 #[esp_hal::main]
 fn main() -> ! {
-    // The framework allocates (validation graphs, the instance list): register
-    // the heap region before anything runs. 64 KiB matches the shared
-    // firmware stack convention; esp-alloc's default `global-allocator`
-    // feature provides the allocator itself.
+    // The framework allocates (validation graphs, run state, streams):
+    // register the heap region before anything runs. 64 KiB matches the
+    // shared firmware stack convention; esp-alloc's default
+    // `global-allocator` feature provides the allocator itself.
     esp_alloc::heap_allocator!(size: 65536);
 
-    // Boot: declarations → validated instances, in dependency order. Both
-    // failure modes abort the boot here, loudly, rather than limping along
-    // with a half-built graph.
+    // Boot: declarations → validated instances → runnable pipelines, in
+    // dependency order. Both failure modes abort the boot here, loudly,
+    // rather than limping along with a half-built graph.
     let mut engine = match Pipelines::parse(PIPELINES_TOML) {
         Ok(doc) => match Engine::instantiate(&doc) {
             Ok(engine) => engine,
@@ -38,9 +40,10 @@ fn main() -> ! {
         Err(_) => panic!("pipelines.toml does not parse"),
     };
 
-    // The runtime loop: nothing but the scheduler. Timer-driven hardware
-    // sampling and stage execution arrive with the driver PRs; until then
-    // the loop proves the schedule bookkeeping runs on-target.
+    // The runtime loop: nothing but the interpreter. Timer-driven hardware
+    // sampling and real stage behaviour arrive with the driver PRs; until
+    // then the loop proves the schedule and execution bookkeeping run
+    // on-target.
     let mut now_ms: u64 = 0;
     loop {
         engine.tick(now_ms);
@@ -60,13 +63,28 @@ fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
 
 #[cfg(not(target_arch = "xtensa"))]
 fn main() {
-    // Host: run the same boot path and print the resolved schedule.
+    // Host: run the same boot path, then execute a simulated horizon of
+    // three beats of the slowest pipeline and report per-pipeline outcomes.
     let doc =
         Pipelines::parse(PIPELINES_TOML).expect("committed pipelines.toml must parse");
-    let engine =
+    let mut engine =
         Engine::instantiate(&doc).expect("committed pipelines.toml must instantiate");
     println!("v8 declarative engine — {} pipeline(s):", engine.len());
+
+    let horizon = 3 * engine.schedule().iter().map(|(_, c)| *c).max().unwrap_or(1);
+    for ms in 0..=horizon {
+        engine.tick(ms);
+    }
+
+    println!(
+        "after {horizon} ms of simulated time (hardware sources are Pending — driver PRs pending):"
+    );
     for (name, cadence_ms) in engine.schedule() {
-        println!("  {name:<16} every {cadence_ms} ms");
+        println!(
+            "  {name:<16} every {cadence_ms:>6} ms — delivered {}, dropped {} (outbox {})",
+            engine.delivered(name).unwrap_or(0),
+            engine.dropped(name).unwrap_or(0),
+            engine.outbox_dropped(name).unwrap_or(0),
+        );
     }
 }

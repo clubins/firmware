@@ -201,8 +201,9 @@ fn opt_f64(params: &Params, field: &'static str) -> Result<(), ParamIssue> {
     Ok(())
 }
 
-/// Required measurement type by name.
-fn req_measurement(
+/// Required measurement type by name. Shared with the runtime's sink
+/// builder, which re-reads the validated `type` parameter.
+pub(crate) fn req_measurement(
     params: &Params,
     field: &'static str,
 ) -> Result<MeasurementType, ParamIssue> {

@@ -102,6 +102,8 @@ impl core::fmt::Display for GraphError {
 }
 
 /// One validated pipeline instance: kinds resolved, parameters checked.
+/// Scheduling state (the next due beat) lives in the runtime's
+/// [`crate::runtime::PipelineRun`], which is built from this.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Instance {
     pub name: String,
@@ -113,9 +115,6 @@ pub struct Instance {
     pub cadence_ms: u64,
     /// Upstream pipeline name for `pipe` sources.
     pub upstream: Option<String>,
-    /// Scheduler bookkeeping: the next due beat in ms. Starts at 0; the
-    /// engine owns advancing it (see `engine::Engine::tick`).
-    pub(crate) next_due: u64,
 }
 
 /// Validate a whole declaration set and return instances in topological
@@ -207,7 +206,6 @@ fn validate_pipeline(decl: &crate::decl::PipelineDecl) -> Result<Instance, Graph
         sink: sink_kind,
         cadence_ms,
         upstream,
-        next_due: 0,
     })
 }
 

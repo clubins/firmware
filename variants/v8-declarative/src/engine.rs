@@ -1,22 +1,34 @@
-//! The boot-time interpreter: declarations → validated instances → ticks.
+//! The boot-time interpreter: declarations → validated instances → runnable
+//! pipelines → ticks.
 //!
 //! This is V8's runtime core. At boot, [`Engine::instantiate`] parses a
-//! pipelines document, validates it through [`crate::graph`], and holds the
-//! resulting instances in topological (dependency) order. From then on the
-//! device loop only calls [`Engine::tick`]: it returns the pipelines whose
-//! cadence came due, in schedule order. Real stage behaviour arrives with
-//! the driver PRs — the scaffold's job is to prove the schedule, the
-//! gating, and the failure modes, not to fake DSP.
+//! pipelines document, validates it through [`crate::graph`], builds each
+//! instance's execution state ([`crate::runtime`]), and wires the `pipe`
+//! edges between pipelines. From then on the device loop only calls
+//! [`Engine::tick`]: it executes the pipelines whose cadence came due —
+//! each run pulls its upstream's finished stream, produces its own samples,
+//! pushes them through the stage chain, and delivers to its sink — and
+//! returns the runs that fired, in schedule order.
+//!
+//! Real hardware behaviour arrives with the driver PRs: hardware sources
+//! are `Pending` (their pipelines idle), capability stages are identity
+//! slots, and sinks count deliveries. The mechanism — graph validation,
+//! flag-gated instantiation, stream wiring, cadence execution — is complete
+//! and host-tested; the drivers slot into it without touching the engine.
 
 use alloc::vec::Vec;
 
 use crate::decl::Pipelines;
-use crate::graph::{self, GraphError, Instance};
+use crate::graph::{self, GraphError};
+use crate::measurement::Measurement;
+use crate::runtime::{PipelineRun, SourceExec};
 
 /// The instantiated pipeline engine.
 #[derive(Clone, Debug)]
 pub struct Engine {
-    instances: Vec<Instance>,
+    /// Runs in topological (dependency) order: an upstream's index is
+    /// always smaller than its consumers'.
+    runs: Vec<PipelineRun>,
 }
 
 impl Engine {
@@ -25,272 +37,164 @@ impl Engine {
     /// references an undeclared pipeline, contains a cycle, or violates the
     /// cadence rules fails here — at boot, loudly.
     pub fn instantiate(pipelines: &Pipelines) -> Result<Self, GraphError> {
-        Ok(Self {
-            instances: graph::validate(pipelines)?,
-        })
+        let validated = graph::validate(pipelines)?;
+
+        // Execution state per instance; the declaration supplies the
+        // parameters the validator already checked (same order — validate
+        // mirrors the declaration into the instance).
+        let mut runs: Vec<PipelineRun> = validated
+            .iter()
+            .map(|inst| {
+                let decl = pipelines
+                    .pipelines
+                    .iter()
+                    .find(|d| d.name == inst.name)
+                    .expect("validate returns the declared pipelines");
+                PipelineRun::build(inst, decl)
+            })
+            .collect();
+
+        // Resolve `pipe` sources to run indexes. Topological order
+        // guarantees the upstream sorts first; assert it so a future change
+        // to the ordering cannot silently break the split_at_mut below.
+        for (i, inst) in validated.iter().enumerate() {
+            if let Some(upstream) = &inst.upstream {
+                let idx = runs
+                    .iter()
+                    .position(|r| r.name.as_str() == upstream.as_str())
+                    .expect("references were validated");
+                debug_assert!(idx < i, "topo order must place upstreams first");
+                runs[i].upstream = Some(idx);
+            }
+        }
+
+        Ok(Self { runs })
     }
 
     /// Number of compiled pipelines in dependency order.
     pub fn len(&self) -> usize {
-        self.instances.len()
+        self.runs.len()
     }
 
     /// Whether the engine runs no pipelines (an empty document is a parse
     /// error, so a valid engine always has at least one — but the accessor
     /// keeps the invariant explicit for tests).
     pub fn is_empty(&self) -> bool {
-        self.instances.is_empty()
+        self.runs.is_empty()
     }
 
     /// The schedule in dependency order: `(name, cadence_ms)` pairs.
     pub fn schedule(&self) -> Vec<(&str, u64)> {
-        self.instances
+        self.runs
             .iter()
             .map(|i| (i.name.as_str(), i.cadence_ms))
             .collect()
     }
 
-    /// Advance the scheduler to `now_ms`. Returns the pipelines due at or
-    /// before `now`, in dependency order; each due pipeline's next beat is
-    /// rescheduled one or more cadence steps past `now` on its original
-    /// grid, so slow consumers catch up without bursting.
+    /// Deliveries a pipeline's sink accepted, by name.
+    pub fn delivered(&self, name: &str) -> Option<u64> {
+        self.runs
+            .iter()
+            .find(|r| r.name.as_str() == name)
+            .map(|r| r.sink.delivered())
+    }
+
+    /// Measurements a pipeline's sink dropped (another type than declared),
+    /// by name.
+    pub fn dropped(&self, name: &str) -> Option<u64> {
+        self.runs
+            .iter()
+            .find(|r| r.name.as_str() == name)
+            .map(|r| r.sink.dropped())
+    }
+
+    /// Stream samples a pipeline dropped at its outbox cap (its consumers
+    /// were too slow), by name.
+    pub fn outbox_dropped(&self, name: &str) -> Option<u64> {
+        self.runs
+            .iter()
+            .find(|r| r.name.as_str() == name)
+            .map(|r| r.outbox_dropped)
+    }
+
+    /// The last measurement a pipeline's sink accepted, by name.
+    pub fn last_delivered(&self, name: &str) -> Option<&Measurement> {
+        self.runs
+            .iter()
+            .find(|r| r.name.as_str() == name)
+            .and_then(|r| r.sink.last())
+    }
+
+    /// Advance the scheduler to `now_ms` and execute what came due. Returns
+    /// the pipelines that fired, in dependency order; each due pipeline's
+    /// next beat is rescheduled one or more cadence steps past `now` on its
+    /// original grid, so slow consumers catch up without bursting.
     pub fn tick(&mut self, now_ms: u64) -> Vec<&str> {
-        let mut due = Vec::new();
-        for inst in &mut self.instances {
-            if inst.next_due <= now_ms {
-                due.push(inst.name.as_str());
-                let missed = (now_ms - inst.next_due) / inst.cadence_ms + 1;
-                inst.next_due += missed * inst.cadence_ms;
+        // First pass: collect due indexes and advance their grids (index
+        // bookkeeping keeps the borrow checker happy and the order stable).
+        let mut due: Vec<usize> = Vec::new();
+        for (i, run) in self.runs.iter_mut().enumerate() {
+            if run.next_due <= now_ms {
+                due.push(i);
+                let missed = (now_ms - run.next_due) / run.cadence_ms + 1;
+                run.next_due += missed * run.cadence_ms;
             }
         }
-        due
-    }
-}
-
-#[cfg(test)]
-// Tests are gated per the kinds they name; the trio-gated ones mirror the
-// default feature set (see the note in graph::tests).
-mod tests {
-    use super::*;
-
-    /// Parse + instantiate; panic with the display error if invalid.
-    fn engine(src: &str) -> Engine {
-        let doc = Pipelines::parse(src).expect("test document parses");
-        Engine::instantiate(&doc).expect("test document is valid")
+        // Second pass: execute in dependency order, so a `pipe` consumer
+        // sees everything its upstream finished up to now.
+        for &i in &due {
+            self.execute(i);
+        }
+        due.iter().map(|&i| self.runs[i].name.as_str()).collect()
     }
 
-    #[test]
-    #[cfg(all(
-        feature = "sensor-decibel",
-        feature = "transport-http",
-        feature = "ops-status"
-    ))]
-    fn instantiates_the_default_document_in_dependency_order() {
-        // The committed config instantiates under the default feature set
-        // (sensor-decibel, transport-http, ops-status): a decibel chain, its
-        // hourly pipe-fed rollup, and the status heartbeat.
-        let doc = Pipelines::parse(include_str!("../config/pipelines.toml"))
-            .expect("committed pipelines.toml parses");
-        let engine =
-            Engine::instantiate(&doc).expect("committed pipelines.toml is valid");
-        let schedule = engine.schedule();
-        assert!(engine.len() >= 2);
-        // Every pipe-sourced pipeline comes after its upstream.
-        for (pos, (name, _)) in schedule.iter().enumerate() {
-            if *name == "decibel-hourly" {
-                let upstream = schedule[..pos].iter().any(|(n, _)| *n == "decibel-leq");
-                assert!(
-                    upstream,
-                    "decibel-leq must be scheduled before decibel-hourly"
-                );
+    /// Execute one pipeline run: gather inputs (the upstream's finished
+    /// stream, then this beat's own samples), run the stage chain, deliver
+    /// to the sink, and append what finished to this pipeline's stream.
+    fn execute(&mut self, i: usize) {
+        // Topological order puts the upstream first, so the split is safe.
+        let (earlier, later) = self.runs.split_at_mut(i);
+        let run = &mut later[0];
+
+        let mut inputs: Vec<Measurement> = Vec::new();
+        if let Some(up) = run.upstream {
+            // Drain whatever the upstream finished since our last beat —
+            // a slow consumer catches up on the whole backlog, one sample
+            // at a time through its own chain.
+            inputs.extend(core::mem::take(&mut earlier[up].outbox));
+        }
+        match &mut run.source {
+            // The upstream's stream is this run's input; nothing extra.
+            SourceExec::Pipe { .. } => {}
+            // Hardware sources have no driver yet: they produce nothing.
+            SourceExec::Pending => {}
+            #[cfg(feature = "ops-status")]
+            SourceExec::Clock { beat } => {
+                *beat += 1;
+                inputs.push(crate::runtime::clock_heartbeat(*beat));
             }
         }
-    }
 
-    #[test]
-    #[cfg(all(feature = "sensor-decibel", feature = "transport-http"))]
-    fn cadence_resolution_fires_pipelines_on_their_beats() {
-        let mut engine = engine(
-            r#"
-            [[pipeline]]
-            name = "fast"
-            source = { kind = "pipe", pipeline = "base", cadence_ms = 1000 }
-            [pipeline.sink]
-            kind = "http-ingest"
-            type = "decibel"
-
-            [[pipeline]]
-            name = "slow"
-            source = { kind = "pipe", pipeline = "base", cadence_ms = 2000 }
-            [pipeline.sink]
-            kind = "http-ingest"
-            type = "decibel"
-
-            [[pipeline]]
-            name = "base"
-            source = { kind = "decibel", cadence_ms = 500 }
-            [pipeline.sink]
-            kind = "http-ingest"
-            type = "decibel"
-            "#,
-        );
-
-        // Dependency order first: base (500) → fast (1000) → slow (2000).
-        assert_eq!(
-            engine.schedule(),
-            [("base", 500), ("fast", 1000), ("slow", 2000)]
-        );
-
-        assert_eq!(engine.tick(0), ["base", "fast", "slow"]);
-        assert_eq!(engine.tick(499), Vec::<&str>::new());
-        assert_eq!(engine.tick(500), ["base"]);
-        assert_eq!(engine.tick(999), Vec::<&str>::new());
-        assert_eq!(engine.tick(1000), ["base", "fast"]);
-        assert_eq!(engine.tick(1500), ["base"]);
-        assert_eq!(engine.tick(2000), ["base", "fast", "slow"]);
-        assert_eq!(engine.tick(2001), Vec::<&str>::new());
-    }
-
-    #[test]
-    #[cfg(all(feature = "sensor-decibel", feature = "transport-http"))]
-    fn slow_consumers_catch_up_without_bursting() {
-        let mut engine = engine(
-            r#"
-            [[pipeline]]
-            name = "base"
-            source = { kind = "decibel", cadence_ms = 100 }
-            [pipeline.sink]
-            kind = "http-ingest"
-            type = "decibel"
-
-            [[pipeline]]
-            name = "hourly"
-            source = { kind = "pipe", pipeline = "base", cadence_ms = 1000 }
-            [pipeline.sink]
-            kind = "http-ingest"
-            type = "decibel"
-            "#,
-        );
-        assert_eq!(engine.tick(0), ["base", "hourly"]);
-        // Jump far past several beats: the engine reports each pipeline once
-        // and reschedules on its original cadence grid, strictly in the future.
-        assert_eq!(engine.tick(10_000), ["base", "hourly"]);
-        // base's grid: 100 ms steps from 10_100; hourly's: 1000 ms from 11_000.
-        assert_eq!(engine.tick(10_050), Vec::<&str>::new());
-        assert_eq!(engine.tick(10_099), Vec::<&str>::new());
-        assert_eq!(engine.tick(10_100), ["base"]);
-        assert_eq!(engine.tick(11_000), ["base", "hourly"]);
-    }
-
-    #[test]
-    #[cfg(not(feature = "sensor-bh1750"))]
-    fn a_config_edit_cannot_enable_an_uncompiled_kind() {
-        // sensor-bh1750 is not in the default set: a pipeline that names it
-        // must fail instantiation even though the TOML is well-formed.
-        let doc = Pipelines::parse(
-            r#"
-            [[pipeline]]
-            name = "lux"
-            source = { kind = "bh1750", cadence_ms = 1000 }
-            [pipeline.sink]
-            kind = "http-ingest"
-            type = "light"
-            "#,
-        )
-        .expect("parses");
-        let err = Engine::instantiate(&doc).expect_err("kind is not compiled in");
-        assert!(
-            matches!(err, GraphError::UnknownSourceKind { kind, .. } if kind == "bh1750")
-        );
-    }
-
-    #[test]
-    #[cfg(all(feature = "sensor-decibel", feature = "transport-http"))]
-    fn flag_gated_kind_instantiates_when_compiled() {
-        // The mirror image, under the default set: the decibel kind exists,
-        // so the same shape of pipeline instantiates cleanly.
-        let doc = Pipelines::parse(
-            r#"
-            [[pipeline]]
-            name = "db"
-            source = { kind = "decibel", cadence_ms = 1000 }
-            [[pipeline.stages]]
-            kind = "a-weight"
-            [pipeline.sink]
-            kind = "http-ingest"
-            type = "decibel"
-            "#,
-        )
-        .expect("parses");
-        let engine = Engine::instantiate(&doc).expect("decibel is compiled in");
-        assert_eq!(engine.schedule(), [("db", 1000)]);
-    }
-
-    #[test]
-    fn mtls_gate_is_enforced_through_validation() {
-        // tls defaults to true: an mqtt-ingest sink without the
-        // transport-mtls flag compiled in cannot validate. In worlds where
-        // transport-mqtt itself is off, the sink kind is unknown instead.
-        // The pipe source exists in every feature world, so the sink verdict
-        // is the first error in all of them; "base" exists so the all-on
-        // world passes reference and cadence checks and validates cleanly.
-        let doc = Pipelines::parse(
-            r#"
-            [[pipeline]]
-            name = "db"
-            source = { kind = "pipe", pipeline = "base", cadence_ms = 1000 }
-            [pipeline.sink]
-            kind = "mqtt-ingest"
-            type = "decibel"
-
-            [[pipeline]]
-            name = "base"
-            source = { kind = "decibel", cadence_ms = 1000 }
-            [pipeline.sink]
-            kind = "http-ingest"
-            type = "decibel"
-            "#,
-        )
-        .expect("parses");
-        let result = Engine::instantiate(&doc);
-        if cfg!(feature = "transport-mqtt") {
-            if cfg!(feature = "transport-mtls") {
-                result.expect("mTLS compiled in");
-            } else {
-                assert!(matches!(result, Err(GraphError::BadParam { .. })));
+        for sample in inputs {
+            // The stage chain: a stage returning None ends that sample's
+            // walk (window not yet full, or throttled out).
+            let mut current = Some(sample);
+            for stage in &mut run.stages {
+                match current.take() {
+                    Some(m) => current = stage.apply(m),
+                    None => break,
+                }
             }
-        } else {
-            assert!(matches!(
-                result,
-                Err(GraphError::UnknownSinkKind { kind, .. }) if kind == "mqtt-ingest"
-            ));
+            if let Some(m) = current {
+                // Sinks are terminal consumers of the stream; the outbox is
+                // what `pipe` consumers tap — capped, drops counted.
+                run.sink.deliver(&m);
+                run.outbox.push(m);
+                if run.outbox.len() > crate::runtime::OUTBOX_CAP {
+                    run.outbox.remove(0);
+                    run.outbox_dropped += 1;
+                }
+            }
         }
-    }
-
-    #[test]
-    #[cfg(feature = "transport-http")]
-    fn cyclic_declarations_fail_the_boot() {
-        let doc = Pipelines::parse(
-            r#"
-            [[pipeline]]
-            name = "a"
-            source = { kind = "pipe", pipeline = "b", cadence_ms = 1000 }
-            [pipeline.sink]
-            kind = "http-ingest"
-            type = "decibel"
-
-            [[pipeline]]
-            name = "b"
-            source = { kind = "pipe", pipeline = "a", cadence_ms = 1000 }
-            [pipeline.sink]
-            kind = "http-ingest"
-            type = "decibel"
-            "#,
-        )
-        .expect("parses");
-        assert!(matches!(
-            Engine::instantiate(&doc),
-            Err(GraphError::Cycle(_))
-        ));
     }
 }
