@@ -15,6 +15,13 @@ use clubins_firmware_v3::features::{self, TransportSelection};
 
 mod tasks;
 
+#[cfg(any(
+    feature = "sensor-bme280",
+    feature = "sensor-sht4x",
+    feature = "sensor-scd4x"
+))]
+mod i2c;
+
 #[esp_hal::main]
 async fn main(spawner: Spawner) {
     println!("clubins firmware v3 (embassy-async): boot");
@@ -22,6 +29,19 @@ async fn main(spawner: Spawner) {
     let peripherals = esp_hal::init(esp_hal::Config::default());
     let timg0 = esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
+
+    // One shared I²C bus for the sensor drivers (GPIO8 = SDA, GPIO9 =
+    // SCL). The bus server owns the controller — esp-hal's async driver
+    // is `!Send`, so it must be built here, inside the task — and serves
+    // the sensor tasks' transactions over the bounded request channel.
+    #[cfg(any(
+        feature = "sensor-bme280",
+        feature = "sensor-sht4x",
+        feature = "sensor-scd4x"
+    ))]
+    spawner.spawn(
+        i2c::bus_server(peripherals.I2C0, peripherals.GPIO8, peripherals.GPIO9).unwrap(),
+    );
 
     static QUEUES: Queues = Queues::new();
     spawn_enabled_tasks(&spawner, &QUEUES);
@@ -44,11 +64,29 @@ fn spawn_enabled_tasks(spawner: &Spawner, queues: &'static Queues) {
     #[cfg(feature = "sensor-pax")]
     spawner.spawn(tasks::pax_sensor_task(queues.measurements.sender()).unwrap());
     #[cfg(feature = "sensor-bme280")]
-    spawner.spawn(tasks::bme280_sensor_task(queues.measurements.sender()).unwrap());
+    spawner.spawn(
+        tasks::bme280_sensor_task(
+            queues.measurements.sender(),
+            i2c::SharedI2c::<{ i2c::BME280_BUS }>,
+        )
+        .unwrap(),
+    );
     #[cfg(feature = "sensor-sht4x")]
-    spawner.spawn(tasks::sht4x_sensor_task(queues.measurements.sender()).unwrap());
+    spawner.spawn(
+        tasks::sht4x_sensor_task(
+            queues.measurements.sender(),
+            i2c::SharedI2c::<{ i2c::SHT4X_BUS }>,
+        )
+        .unwrap(),
+    );
     #[cfg(feature = "sensor-scd4x")]
-    spawner.spawn(tasks::scd4x_sensor_task(queues.measurements.sender()).unwrap());
+    spawner.spawn(
+        tasks::scd4x_sensor_task(
+            queues.measurements.sender(),
+            i2c::SharedI2c::<{ i2c::SCD4X_BUS }>,
+        )
+        .unwrap(),
+    );
     #[cfg(feature = "sensor-pms5003")]
     spawner.spawn(tasks::pms5003_sensor_task(queues.measurements.sender()).unwrap());
     #[cfg(feature = "sensor-bh1750")]
