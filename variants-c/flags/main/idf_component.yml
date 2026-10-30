@@ -1,0 +1,7 @@
+## Component manager manifest for the flags variant.
+##
+## Every component used today (freertos, esp_log) ships with ESP-IDF and is
+## referenced from main/CMakeLists.txt PRIV_REQUIRES — no managed-component
+## downloads yet. nanopb (the MQTT v2 protobuf encoders) lands with the
+## transport work.
+dependencies: {}
