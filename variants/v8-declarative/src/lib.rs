@@ -32,12 +32,29 @@ extern crate alloc;
 
 pub mod config;
 pub mod decl;
-pub mod engine;
 pub mod graph;
 pub mod measurement;
 pub mod nvs;
 pub mod ops;
 pub mod registry;
+
+/// The interpreter — [`engine`] + [`runtime`] — exists only when at least
+/// one sink kind is compiled in: every valid pipeline declaration needs a
+/// sink, so a sink-less build has no runnable graph and no instance can
+/// exist. (`status` heartbeats are delivered by the `ops-status` sink.)
+#[cfg(any(
+    feature = "transport-http",
+    feature = "transport-mqtt",
+    feature = "ops-status",
+    feature = "logging-defmt"
+))]
+pub mod engine;
+#[cfg(any(
+    feature = "transport-http",
+    feature = "transport-mqtt",
+    feature = "ops-status",
+    feature = "logging-defmt"
+))]
 pub mod runtime;
 
 /// The HTTP JSON ingest codec — exists only when the device has an HTTP

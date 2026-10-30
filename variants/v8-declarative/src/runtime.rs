@@ -29,14 +29,21 @@
 //! [`crate::engine::Engine::tick`] an upstream always executes before the
 //! `pipe` consumers that tap its stream.
 
+#[cfg(feature = "ops-status")]
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::decl::{ParamGet, Params, PipelineDecl};
 use crate::graph::Instance;
-use crate::measurement::{Measurement, StatusReport, StatusResult};
-use crate::registry::{self, MeasurementType, SinkKind, SourceKind, StageKind};
+use crate::measurement::Measurement;
+#[cfg(feature = "ops-status")]
+use crate::measurement::{StatusReport, StatusResult};
+// `registry::` paths and `MeasurementType` are only used by the HTTP/MQTT
+// sink builders; in other feature worlds the bare kind names suffice.
+#[cfg(any(feature = "transport-http", feature = "transport-mqtt"))]
+use crate::registry::{self, MeasurementType};
+use crate::registry::{SinkKind, SourceKind, StageKind};
 
 /// How many finished measurements a pipeline may buffer for downstream
 /// `pipe` consumers before the oldest is dropped. Bounds heap use when a
@@ -367,6 +374,10 @@ fn build_stage(kind: StageKind, params: &Params, cadence_ms: u64) -> StageExec {
 /// Build a sink's execution state, carrying the declared measurement type
 /// as the accept rule.
 fn build_sink(kind: SinkKind, params: &Params) -> SinkExec {
+    // Without an HTTP/MQTT transport no sink kind reads parameters at
+    // build time (status/log sinks carry none), leaving `params` unused.
+    #[cfg(not(any(feature = "transport-http", feature = "transport-mqtt")))]
+    let _ = params;
     match kind {
         #[cfg(feature = "transport-http")]
         SinkKind::HttpIngest => {

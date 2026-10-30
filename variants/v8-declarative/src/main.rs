@@ -14,13 +14,49 @@
 #![cfg_attr(target_arch = "xtensa", no_std, no_main)]
 
 use firmware_v8_declarative::decl::Pipelines;
+
+// The engine only exists when a sink kind does (see lib.rs).
+#[cfg(any(
+    feature = "transport-http",
+    feature = "transport-mqtt",
+    feature = "ops-status",
+    feature = "logging-defmt"
+))]
 use firmware_v8_declarative::engine::Engine;
 
 /// The pipelines document is compiled into the binary as the boot defaults;
 /// a TOML edit retunes the graph, cargo features gate which kinds exist.
 const PIPELINES_TOML: &str = include_str!("../config/pipelines.toml");
 
-#[cfg(target_arch = "xtensa")]
+/// Sink-less build (no transport, status, or log sink compiled in): the
+/// interpreter layer is compiled out — no pipeline declaration can
+/// validate — so the on-target entry point just idles.
+#[cfg(all(
+    target_arch = "xtensa",
+    not(any(
+        feature = "transport-http",
+        feature = "transport-mqtt",
+        feature = "ops-status",
+        feature = "logging-defmt"
+    ))
+))]
+#[esp_hal::main]
+fn main() -> ! {
+    let _ = PIPELINES_TOML; // the document still compiles in; nothing runs it
+    loop {
+        core::hint::spin_loop();
+    }
+}
+
+#[cfg(all(
+    target_arch = "xtensa",
+    any(
+        feature = "transport-http",
+        feature = "transport-mqtt",
+        feature = "ops-status",
+        feature = "logging-defmt"
+    )
+))]
 #[esp_hal::main]
 fn main() -> ! {
     // The framework allocates (validation graphs, run state, streams):
@@ -61,7 +97,15 @@ fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
     loop {}
 }
 
-#[cfg(not(target_arch = "xtensa"))]
+#[cfg(all(
+    not(target_arch = "xtensa"),
+    any(
+        feature = "transport-http",
+        feature = "transport-mqtt",
+        feature = "ops-status",
+        feature = "logging-defmt"
+    )
+))]
 fn main() {
     // Host: run the same boot path, then execute a simulated horizon of
     // three beats of the slowest pipeline and report per-pipeline outcomes.
@@ -79,6 +123,7 @@ fn main() {
     println!(
         "after {horizon} ms of simulated time (hardware sources are Pending — driver PRs pending):"
     );
+
     for (name, cadence_ms) in engine.schedule() {
         println!(
             "  {name:<16} every {cadence_ms:>6} ms — delivered {}, dropped {} (outbox {})",
@@ -87,4 +132,25 @@ fn main() {
             engine.outbox_dropped(name).unwrap_or(0),
         );
     }
+}
+
+/// Sink-less host build: the interpreter is compiled out, but the document
+/// still parses — report the declaration count and stop.
+#[cfg(all(
+    not(target_arch = "xtensa"),
+    not(any(
+        feature = "transport-http",
+        feature = "transport-mqtt",
+        feature = "ops-status",
+        feature = "logging-defmt"
+    ))
+))]
+fn main() {
+    let doc =
+        Pipelines::parse(PIPELINES_TOML).expect("committed pipelines.toml must parse");
+    println!(
+        "v8 declarative engine — {} pipeline declaration(s), but no sink kind is \
+         compiled in; nothing to run",
+        doc.pipelines.len()
+    );
 }
