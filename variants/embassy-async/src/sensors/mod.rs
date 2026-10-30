@@ -25,6 +25,8 @@
 pub mod bme280;
 #[cfg(feature = "driver-i2c")]
 pub mod i2c;
+#[cfg(feature = "sensor-scd4x")]
+pub mod scd4x;
 #[cfg(any(feature = "sensor-sht4x", feature = "sensor-scd4x"))]
 pub mod sensirion;
 #[cfg(feature = "sensor-sht4x")]
