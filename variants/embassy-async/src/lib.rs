@@ -7,9 +7,10 @@
 //!   tasks, the boot-session identity and per-topic sequencing those events
 //!   carry, the HTTP JSON encoders for the ingest contract, the three-tier
 //!   configuration (built-in constants, `config/default.toml`, NVS
-//!   overrides), and the feature-resolution layer that turns the cargo flag
-//!   matrix into a task plan. It compiles and tests on the host, keeping CI
-//!   fast.
+//!   overrides), the feature-resolution layer that turns the cargo flag
+//!   matrix into a task plan, and the sensor task framework (driver trait,
+//!   cadence wrapper, fault isolation) every sensor task runs through. It
+//!   compiles and tests on the host, keeping CI fast.
 //! - The device personality (`src/main.rs` + `src/device/`, Xtensa only)
 //!   boots esp-hal, starts the esp-rtos embassy executor, and spawns one
 //!   async task per enabled capability. Sensor tasks publish
@@ -32,4 +33,5 @@ pub mod codec;
 pub mod config;
 pub mod events;
 pub mod features;
+pub mod sensor;
 pub mod session;
