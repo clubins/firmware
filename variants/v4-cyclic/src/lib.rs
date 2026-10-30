@@ -36,6 +36,7 @@
 pub mod bus;
 #[cfg(feature = "sensor-decibel")]
 pub mod dsp;
+pub mod exec;
 pub mod measurement;
 #[cfg(feature = "net-wifi")]
 pub mod net;
