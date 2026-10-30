@@ -1,0 +1,70 @@
+[package]
+name = "clubins-firmware-v3"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Clubins ESP32-S3 sensor firmware — variant C: embassy-async task architecture"
+
+[dependencies]
+embassy-sync = "0.8.0"
+heapless = "0.9.3"
+
+# Host builds compile only the library's pure logic. Every hardware and
+# runtime dependency is scoped to the Xtensa target so the host personality
+# never sees esp-hal (which cannot compile off-target).
+[target.'cfg(target_arch = "xtensa")'.dependencies]
+embassy-executor = { version = "0.10.0", default-features = false }
+embassy-futures = "0.1.2"
+embassy-time = "0.5.1"
+esp-backtrace = { version = "0.20.0", features = ["esp32s3", "panic-handler", "println"] }
+esp-hal = { version = "=1.2.2", features = ["esp32s3", "unstable"] } # unstable: required by esp-rtos
+esp-println = { version = "0.18.0", features = ["esp32s3"] }
+esp-rtos = { version = "0.4.0", features = ["embassy", "esp32s3"] }
+
+[dev-dependencies]
+# Host tests drive embassy-sync channels and need a critical-section
+# implementation; `std` provides one. On the target esp-hal provides it.
+critical-section = { version = "1.2", features = ["std"] }
+embassy-futures = "0.1.2"
+
+# Capability flags — the compile-time half of "a flag in a config file".
+# Every sensor driver, both transports and each ops concern is a leaf flag
+# with no hidden coupling; any combination must compile (just flag-matrix).
+# Runtime tunables come from config/default.toml with NVS overrides.
+[features]
+default = ["sensor-decibel", "transport-http", "ops-status"]
+
+# Internal plumbing flags — dependency edges only, not public capabilities.
+driver-i2c = []
+driver-uart = []
+driver-gpio = []
+net-wifi = []
+proto-v2 = []
+
+# Sensors — each enables its driver and its task spawn arm.
+sensor-decibel = []                       # SPK0641HT4H-1 PDM mic, I2S0 @ 48 kHz
+sensor-pax = ["driver-gpio"]              # occupancy front-end (PIR)
+sensor-bme280 = ["driver-i2c"]            # temperature + humidity + pressure
+sensor-sht4x = ["driver-i2c"]             # temperature + humidity
+sensor-scd4x = ["driver-i2c"]             # CO2
+sensor-pms5003 = ["driver-uart"]          # PM2.5 particulates
+sensor-bh1750 = ["driver-i2c"]            # ambient light
+
+# Transports — config/default.toml `[transport] active` selects at runtime
+# when both are compiled in (see features::resolve_transport).
+transport-http = ["net-wifi"]             # working JSON ingest
+transport-mqtt = ["net-wifi", "proto-v2"] # MQTT v2 protobuf contract
+transport-mtls = ["transport-mqtt"]       # client certs from NVS
+
+# Ops
+ota = []
+provisioning = ["net-wifi"]
+deep-sleep = []
+logging-defmt = []
+ops-status = []
+
+[profile.release]
+debug            = true
+debug-assertions = true
+lto              = "fat"
+codegen-units    = 1
