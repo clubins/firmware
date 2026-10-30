@@ -33,8 +33,7 @@ static bool config_pool_loaded;
 /* Warn list                                                           */
 /* ------------------------------------------------------------------ */
 
-static void warn_push(clubins_config_warn_t *warn, const char *key,
-                      clubins_config_warn_kind_t kind)
+static void warn_push(clubins_config_warn_t *warn, const char *key, clubins_config_warn_kind_t kind)
 {
     if (warn == NULL) {
         return;
@@ -138,8 +137,8 @@ static bool valid_sensor_id(const char *s)
     }
     for (size_t i = 0; i < len; i++) {
         char c = s[i];
-        bool ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                  c == '-';
+        bool ok =
+            (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '-';
         if (!ok) {
             return false;
         }
@@ -189,8 +188,7 @@ static bool parse_transport(const char *s, clubins_transport_active_t *out)
 /** Warn about every key of `tab` that is not in `known` (NUL-separated
  * list ends at NULL), under dotted prefix `section`. */
 static void scan_unknown_keys(const toml_table_t *tab, const char *section,
-                              const char *const *known, size_t nknown,
-                              clubins_config_warn_t *warn)
+                              const char *const *known, size_t nknown, clubins_config_warn_t *warn)
 {
     for (int i = 0;; i++) {
         const char *key = toml_key_in(tab, i);
@@ -257,9 +255,8 @@ static void toml_apply_f64(const toml_table_t *tab, const char *section, const c
 
 /** Apply a string field; `cap` is the pool buffer size including NUL — a
  * file value that would not fit is rejected, never truncated. */
-static void toml_apply_str(const toml_table_t *tab, const char *section, const char *key,
-                           char *dst, size_t cap, bool (*valid)(const char *),
-                           clubins_config_warn_t *warn)
+static void toml_apply_str(const toml_table_t *tab, const char *section, const char *key, char *dst,
+                           size_t cap, bool (*valid)(const char *), clubins_config_warn_t *warn)
 {
     toml_datum_t datum = toml_string_in(tab, key);
     if (!datum.ok) {
@@ -379,8 +376,7 @@ static void apply_toml_table(clubins_config_t *cfg, clubins_config_warn_t *warn,
             scan_unknown_keys(mqtt, "transport.mqtt", mqtt_keys, 2, warn);
             toml_apply_str(mqtt, "transport.mqtt", "broker", cfg->mqtt_broker,
                            sizeof(cfg->mqtt_broker), valid_mqtt_broker, warn);
-            toml_apply_i32(mqtt, "transport.mqtt", "port", &cfg->mqtt_port, valid_mqtt_port,
-                           warn);
+            toml_apply_i32(mqtt, "transport.mqtt", "port", &cfg->mqtt_port, valid_mqtt_port, warn);
         }
     }
 
@@ -413,8 +409,8 @@ static void ov_apply_i32(const clubins_config_overrides_t *ov, const char *key, 
         return;
     }
     if (rc < 0 || (valid != NULL && !valid(value))) {
-        warn_push(warn, key, rc < 0 ? CLUBINS_CONFIG_WARN_SOURCE_ERROR
-                                    : CLUBINS_CONFIG_WARN_BAD_VALUE);
+        warn_push(warn, key,
+                  rc < 0 ? CLUBINS_CONFIG_WARN_SOURCE_ERROR : CLUBINS_CONFIG_WARN_BAD_VALUE);
         return;
     }
     *dst = value;
@@ -432,16 +428,15 @@ static void ov_apply_f64(const clubins_config_overrides_t *ov, const char *key, 
         return;
     }
     if (rc < 0 || (valid != NULL && !valid(value))) {
-        warn_push(warn, key, rc < 0 ? CLUBINS_CONFIG_WARN_SOURCE_ERROR
-                                    : CLUBINS_CONFIG_WARN_BAD_VALUE);
+        warn_push(warn, key,
+                  rc < 0 ? CLUBINS_CONFIG_WARN_SOURCE_ERROR : CLUBINS_CONFIG_WARN_BAD_VALUE);
         return;
     }
     *dst = value;
 }
 
 static void ov_apply_str(const clubins_config_overrides_t *ov, const char *key, char *dst,
-                         size_t cap, bool (*valid)(const char *),
-                         clubins_config_warn_t *warn)
+                         size_t cap, bool (*valid)(const char *), clubins_config_warn_t *warn)
 {
     if (ov->get_str == NULL) {
         return;
@@ -477,8 +472,8 @@ static void ov_apply_transport(const clubins_config_overrides_t *ov, clubins_con
     }
     clubins_transport_active_t parsed = CLUBINS_TRANSPORT_COUNT;
     if (rc < 0 || !parse_transport(scratch, &parsed)) {
-        warn_push(warn, "transport.active", rc < 0 ? CLUBINS_CONFIG_WARN_SOURCE_ERROR
-                                                   : CLUBINS_CONFIG_WARN_BAD_VALUE);
+        warn_push(warn, "transport.active",
+                  rc < 0 ? CLUBINS_CONFIG_WARN_SOURCE_ERROR : CLUBINS_CONFIG_WARN_BAD_VALUE);
         return;
     }
     cfg->transport_active = parsed;
@@ -488,10 +483,10 @@ static void apply_overrides(clubins_config_t *cfg, const clubins_config_override
                             clubins_config_warn_t *warn)
 {
     ov_apply_str(ov, "sensor.id", cfg->sensor_id, sizeof(cfg->sensor_id), valid_sensor_id, warn);
-    ov_apply_i32(ov, "sampling.decibel_window_ms", &cfg->decibel_window_ms,
-                 valid_decibel_window_ms, warn);
-    ov_apply_i32(ov, "sampling.report_interval_s", &cfg->report_interval_s,
-                 valid_report_interval_s, warn);
+    ov_apply_i32(ov, "sampling.decibel_window_ms", &cfg->decibel_window_ms, valid_decibel_window_ms,
+                 warn);
+    ov_apply_i32(ov, "sampling.report_interval_s", &cfg->report_interval_s, valid_report_interval_s,
+                 warn);
     ov_apply_i32(ov, "sampling.offline_buffer", &cfg->offline_buffer, valid_offline_buffer, warn);
     ov_apply_i32(ov, "sensors.bme280.i2c_address", &cfg->bme280_i2c_address, valid_i2c_address,
                  warn);
@@ -515,8 +510,7 @@ static void apply_overrides(clubins_config_t *cfg, const clubins_config_override
 void clubins_config_builtins(clubins_config_t *out)
 {
     memset(out, 0, sizeof(*out));
-    snprintf(out->sensor_id, sizeof(out->sensor_id), "%s",
-             "00000000-0000-0000-0000-000000000000");
+    snprintf(out->sensor_id, sizeof(out->sensor_id), "%s", "00000000-0000-0000-0000-000000000000");
     out->decibel_window_ms = 1000; /* Fast windows (125 ms) live inside this */
     out->report_interval_s = 60;   /* per-type reporting cadence */
     out->offline_buffer = 64;      /* measurements held while disconnected */
@@ -576,7 +570,8 @@ const clubins_config_t *clubins_config_pool(void)
 
 bool clubins_config_equal(const clubins_config_t *a, const clubins_config_t *b)
 {
-    return strcmp(a->sensor_id, b->sensor_id) == 0 && a->decibel_window_ms == b->decibel_window_ms &&
+    return strcmp(a->sensor_id, b->sensor_id) == 0 &&
+           a->decibel_window_ms == b->decibel_window_ms &&
            a->report_interval_s == b->report_interval_s && a->offline_buffer == b->offline_buffer &&
            a->bme280_i2c_address == b->bme280_i2c_address && a->pir_gpio_pin == b->pir_gpio_pin &&
            a->transport_active == b->transport_active &&

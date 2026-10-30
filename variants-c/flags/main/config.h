@@ -96,8 +96,8 @@ typedef struct {
  * overrides applied) — tolerance is the contract, the status is the log. */
 typedef enum {
     CLUBINS_CONFIG_OK = 0,
-    CLUBINS_CONFIG_ERR_TOML,    /* file present but unparseable/oversized */
-    CLUBINS_CONFIG_ERR_ARGS,    /* NULL out pointer */
+    CLUBINS_CONFIG_ERR_TOML, /* file present but unparseable/oversized */
+    CLUBINS_CONFIG_ERR_ARGS, /* NULL out pointer */
 } clubins_config_status_t;
 
 /** Injectable override source — the seam that keeps NVS out of the host

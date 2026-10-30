@@ -130,8 +130,7 @@ static int get_f64(void *ctx, const char *key, double *out)
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         return 0;
     }
-    ESP_LOGW(TAG, "nvs_get_blob(%s): %s (len=%u)", nvs_key, esp_err_to_name(err),
-             (unsigned)len);
+    ESP_LOGW(TAG, "nvs_get_blob(%s): %s (len=%u)", nvs_key, esp_err_to_name(err), (unsigned)len);
     return -1;
 }
 

@@ -52,8 +52,8 @@ static void log_config_summary(void)
         ESP_LOGE(TAG, "config pool missing after load");
         return;
     }
-    ESP_LOGI(TAG, "config: sensor=%s transport=%s report_every=%" PRIi32 "s",
-             cfg->sensor_id, transport_name(cfg->transport_active), cfg->report_interval_s);
+    ESP_LOGI(TAG, "config: sensor=%s transport=%s report_every=%" PRIi32 "s", cfg->sensor_id,
+             transport_name(cfg->transport_active), cfg->report_interval_s);
 }
 
 static void load_config(void)

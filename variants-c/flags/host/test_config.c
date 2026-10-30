@@ -209,8 +209,7 @@ void test_load_null_toml_and_null_overrides_yields_builtins(void)
     clubins_config_warn_t warn;
     clubins_config_t expected;
     clubins_config_builtins(&expected);
-    TEST_ASSERT_EQUAL(CLUBINS_CONFIG_OK,
-                      clubins_config_load(NULL, NULL, &warn));
+    TEST_ASSERT_EQUAL(CLUBINS_CONFIG_OK, clubins_config_load(NULL, NULL, &warn));
     TEST_ASSERT_TRUE(clubins_config_equal(&expected, clubins_config_pool()));
     TEST_ASSERT_EQUAL_INT(0, (int)warn.count);
 }
@@ -411,12 +410,9 @@ void test_loader_never_queries_secret_keys(void)
     clubins_config_warn_t warn;
     clubins_config_load(NULL, &g_mock, &warn);
     for (size_t i = 0; i < g_query_count; i++) {
-        TEST_ASSERT_NULL_MESSAGE(
-            strstr(g_queries[i], "apikey"), "loader queried an apikey key");
-        TEST_ASSERT_NULL_MESSAGE(
-            strstr(g_queries[i], "password"), "loader queried a password key");
-        TEST_ASSERT_NULL_MESSAGE(
-            strstr(g_queries[i], "secret"), "loader queried a secret key");
+        TEST_ASSERT_NULL_MESSAGE(strstr(g_queries[i], "apikey"), "loader queried an apikey key");
+        TEST_ASSERT_NULL_MESSAGE(strstr(g_queries[i], "password"), "loader queried a password key");
+        TEST_ASSERT_NULL_MESSAGE(strstr(g_queries[i], "secret"), "loader queried a secret key");
         TEST_ASSERT_NULL_MESSAGE(strstr(g_queries[i], "cert"), "loader queried a cert key");
     }
 }
