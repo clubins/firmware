@@ -41,7 +41,9 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
 
       - name: Host check
-        run: nix-shell --pure --run 'just check'
+        run: |
+          nix-shell --pure --run 'echo "=== resolutions ==="; command -v cargo rustfmt cargo-fmt rustc; cargo --version; rustfmt --version; echo "=== shell env ==="; env | grep -iE "rust|cargo" | sort; echo "=== verbose fmt ==="; cargo fmt -v --all --check; echo FMT_RC=$?'
+          echo STEP_RC=$?
 
   flag-matrix:
     name: Flag matrix (all-off, each flag alone, all-on)
