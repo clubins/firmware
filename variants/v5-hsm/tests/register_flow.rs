@@ -1,3 +1,10 @@
+// The file pins the BME280 and SHT4x I2C drivers — it needs their
+// features on to name their modules at all.
+#![cfg(all(
+    feature = "driver-i2c",
+    feature = "sensor-bme280",
+    feature = "sensor-sht4x"
+))]
 //! Register-flow conformance: the real BME280 and SHT4x driver machines,
 //! driven through the central dispatcher — the architecture's single
 //! execution path — against the same recorded I2C transaction sequences

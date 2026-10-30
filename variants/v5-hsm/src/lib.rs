@@ -38,6 +38,10 @@ pub mod sensors {
     pub mod bme280;
     #[cfg(feature = "driver-i2c")]
     pub mod bus;
+    // Time is shared across transports, so the clock is compiled for
+    // either driver family.
+    #[cfg(any(feature = "driver-i2c", feature = "driver-uart"))]
+    pub mod clock;
     #[cfg(feature = "sensor-decibel")]
     pub mod decibel;
     #[cfg(feature = "sensor-pax")]
@@ -48,6 +52,8 @@ pub mod sensors {
     pub mod scd4x;
     #[cfg(feature = "sensor-sht4x")]
     pub mod sht4x;
+    #[cfg(feature = "driver-uart")]
+    pub mod uart;
 }
 
 pub mod transports {
