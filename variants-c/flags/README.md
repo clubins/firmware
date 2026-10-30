@@ -38,6 +38,12 @@ variants-c/flags/
 │   │                         mirror of V1's superloop)
 │   ├── caps_config.h         CONFIG_* → plain 0/1 macros (platform-agnostic)
 │   ├── cap_registry.h/.c     static module/sensor registry + dispatcher
+│   ├── measurement.h/.c      platform-agnostic typed measurement model
+│   │                         (fixed-point; decibel/pax/weather/co2/pm25/
+│   │                         light/status)
+│   ├── http_json.h/.c        HTTP ingest codec — field names/order match
+│   │                         the Go structs exactly; caller-buffer,
+│   │                         allocation-free; scaled fixed-point numbers
 │   └── stubs/
 │       ├── stubkit.h         stub export contract
 │       ├── sensors/          decibel · pax · bme280 · sht4x · scd4x ·
@@ -48,6 +54,12 @@ variants-c/flags/
 ├── host/
 │   ├── CMakeLists.txt        CTest + Unity harness (platform-agnostic core)
 │   ├── test_flag_framework.c the port of V1's tests/flag_framework.rs
+│   ├── test_measurement_model.c  model round-trips, scale/range edges,
+│   │                         closed result vocabulary
+│   ├── test_http_json_codec.c    byte-exact encode/decode/escaping/truncation
+│   ├── test_ingest_conformance.c fixture-driven contract conformance
+│   ├── fixtures/ingest/      the exact wire bytes (requests, responses,
+│   │                         and server-400 rejections)
 │   └── unity/                vendored Unity 2.x (from ESP-IDF's copy)
 ├── tools/
 │   └── flag-matrix.sh        17-combination matrix gate (host + device)
@@ -90,6 +102,19 @@ New ingest types (`co2`, `pm25`, `light`) are emitted per the
 one-topic-per-type rule; no server receiver exists yet — the gap is
 tracked for the backend, not the firmware (spec §Decisions).
 
+## Ingest contract (HTTP)
+
+`main/http_json.c` is the source-of-truth check for what a C1 device puts
+on the wire. Request bodies are compact JSON in the Go structs'
+declaration order (credentials, then `measurement_id`/`status_id`, then
+the payload), verified against `server-infra/ingest/service` in the
+backend repo. Numbers are scaled fixed-point integers — dB and temperature
+in tenths, everything else whole — so the device never touches floating
+point. The decoder mirrors the server's `encoding/json` behavior with one
+deliberate tolerance: it skips unknown keys without fully validating their
+JSON shape (the server rejects any malformed JSON anywhere in the body);
+conforming senders only ever decode well-formed bodies.
+
 ## How the dispatch works
 
 `main/cap_registry.c` is the port of V1's `registry.rs`: every capability
@@ -111,6 +136,7 @@ only ever in NVS. The committed defaults land with the config task.
 | Gate | Command | What proves |
 |---|---|---|
 | Host CTest | `tools/flag-matrix.sh` (host mode) | flag resolution, module presence, stub lifecycle — under all 17 combinations |
+| Ingest conformance | `ctest --test-dir build/host -R ingest_conformance` | every HTTP body decodes and re-encodes byte-exact against the wire fixtures; server-400 shapes rejected |
 | Flag matrix (host) | same | all-off, each leaf alone (+ its Kconfig selects), all-on |
 | Device build (default) | `idf.py build` | the ESP32-S3 app links with capabilities off |
 | Device build (all features) | `tools/flag-matrix.sh --device` or the CI job | the ESP32-S3 app links with all 15 on |

@@ -10,6 +10,8 @@ include(${CMAKE_CURRENT_LIST_DIR}/../caps.cmake)
 set(CLUBINS_SRCS
     "main.c"
     "cap_registry.c"
+    "measurement.c"
+    "http_json.c"
     ${CLUBINS_CAP_SOURCES}
 )
 

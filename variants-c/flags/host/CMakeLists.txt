@@ -22,6 +22,8 @@ set(CLUBINS_UNITY_DIR "${CLUBINS_APP_DIR}/host/unity")
 # warnings never mask ours.
 add_library(clubins_core STATIC
     "${CLUBINS_APP_DIR}/main/cap_registry.c"
+    "${CLUBINS_APP_DIR}/main/measurement.c"
+    "${CLUBINS_APP_DIR}/main/http_json.c"
     ${CLUBINS_CAP_SOURCES}
 )
 target_include_directories(clubins_core PUBLIC "${CLUBINS_APP_DIR}/main")
@@ -36,3 +38,31 @@ target_link_libraries(test_flag_framework PRIVATE clubins_core)
 
 enable_testing()
 add_test(NAME flag_framework COMMAND test_flag_framework)
+
+add_executable(test_measurement_model
+    test_measurement_model.c
+    "${CLUBINS_UNITY_DIR}/unity.c"
+)
+target_include_directories(test_measurement_model PRIVATE "${CLUBINS_UNITY_DIR}")
+target_link_libraries(test_measurement_model PRIVATE clubins_core)
+add_test(NAME measurement_model COMMAND test_measurement_model)
+
+add_executable(test_http_json_codec
+    test_http_json_codec.c
+    "${CLUBINS_UNITY_DIR}/unity.c"
+)
+target_include_directories(test_http_json_codec PRIVATE "${CLUBINS_UNITY_DIR}")
+target_link_libraries(test_http_json_codec PRIVATE clubins_core)
+add_test(NAME http_json_codec COMMAND test_http_json_codec)
+
+add_executable(test_ingest_conformance
+    test_ingest_conformance.c
+    "${CLUBINS_UNITY_DIR}/unity.c"
+)
+target_include_directories(test_ingest_conformance PRIVATE "${CLUBINS_UNITY_DIR}")
+target_compile_definitions(
+    test_ingest_conformance
+    PRIVATE CLUBINS_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/ingest"
+)
+target_link_libraries(test_ingest_conformance PRIVATE clubins_core)
+add_test(NAME ingest_conformance COMMAND test_ingest_conformance)
