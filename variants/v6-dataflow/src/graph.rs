@@ -617,9 +617,11 @@ mod tests {
         assert_eq!(t.drained, 0);
     }
 
-    /// Graph footprint stays inside the fixed budget.
+    /// Graph footprint stays inside the fixed budget (a compile-time fact).
     #[test]
     fn graph_fits_the_budget() {
-        assert!(Graph::BYTES <= crate::budget::BUDGET_BYTES);
+        const {
+            assert!(Graph::BYTES <= crate::budget::BUDGET_BYTES);
+        }
     }
 }

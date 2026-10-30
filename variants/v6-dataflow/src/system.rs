@@ -31,7 +31,10 @@ mod tests {
     fn built_graph_reports_its_footprint() {
         let g = build();
         let _ = g.tick();
-        assert!(Graph::BYTES > 0);
-        assert!(Graph::BYTES <= budget::BUDGET_BYTES);
+        // Compile-time facts: checked statically, not at test runtime.
+        const {
+            assert!(Graph::BYTES > 0);
+            assert!(Graph::BYTES <= budget::BUDGET_BYTES);
+        }
     }
 }

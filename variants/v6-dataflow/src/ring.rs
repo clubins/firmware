@@ -311,7 +311,7 @@ mod tests {
             if pushed % 3 == 0 {
                 ring.skip(usize::MAX); // resync to latest
             }
-            while let Some(_) = ring.pop() {
+            while ring.pop().is_some() {
                 popped += 1;
             }
         }
