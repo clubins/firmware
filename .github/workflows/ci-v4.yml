@@ -1,0 +1,60 @@
+# CI for the V4 cyclic executive variant — self-contained, GitHub-hosted only.
+#
+# The variant owns its toolchain (variants/v4-cyclic/{shell.nix,esp-toolchain.nix}):
+# the pinned Nix shell provides the esp-rs Rust fork 1.97.0.0 and Xtensa GCC,
+# so no rustup setup and no self-hosted runner are involved anywhere.
+
+name: ci-v4
+
+on:
+  push:
+    branches: ["v4/cyclic-scaffold"]
+    paths: ["variants/v4-cyclic/**", ".github/workflows/ci-v4.yml"]
+  pull_request:
+    paths: ["variants/v4-cyclic/**", ".github/workflows/ci-v4.yml"]
+
+concurrency:
+  group: ci-v4-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: variants/v4-cyclic
+
+jobs:
+  host-check:
+    name: host check (fmt, clippy, build, test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v22
+      - name: just check
+        run: nix-shell --pure --run 'just check'
+
+  flag-matrix:
+    name: flag matrix (all-off, each flag alone, all-on)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v22
+      - name: just flag-matrix
+        run: nix-shell --pure --run 'just flag-matrix'
+
+  xtensa-build:
+    name: ESP32-S3 release link
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v22
+      - name: build (default features)
+        run: nix-shell --pure --run 'just build-target'
+      - name: build (all features)
+        run: nix-shell --pure --run 'just build-target --all-features'
+      - name: artifact is an Xtensa ELF
+        run: |
+          elf="target/xtensa-esp32s3-none-elf/release/v4-cyclic"
+          test -f "$elf"
+          file "$elf" | grep -i xtensa
