@@ -23,14 +23,20 @@
 //! - [`dma`] — simulated DMA engines (I2S/PDM, UART) + GPIO ISR producer.
 //! - [`nodekit`] — shared node machinery (measurement rings, `offer`).
 //! - [`sensors`]/[`transports`]/[`ops`] — the 15 flag-gated node modules.
+//! - [`graph`] — the statically-allocated DAG + its pump (`Graph::step`).
+//! - [`budget`] — link-time memory-budget accounting (`Graph::BYTES`).
+//! - [`system`] — the composition root with the compile-time assertion.
 
 #![cfg_attr(not(test), no_std)]
 
+pub mod budget;
 pub mod cell;
 pub mod dma;
+pub mod graph;
 pub mod measurement;
 pub mod nodekit;
 pub mod ring;
+pub mod system;
 
 pub mod sensors {
     //! Sensor source nodes — one module per `sensor-*` flag. Real drivers

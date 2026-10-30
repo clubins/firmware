@@ -17,10 +17,17 @@
 #[cfg(target_arch = "xtensa")]
 #[esp_hal::main]
 fn main() -> ! {
-    // The statically-allocated dataflow graph (graph/budget/system) lands
-    // with the core-primitive commit; the scaffold personality is a spin
-    // until then.
+    use firmware_v6_dataflow::{cell::StaticCell, graph::Graph};
+
+    // The statically-allocated dataflow graph: no heap, no allocator, no
+    // locks. The cell pins the graph in `static` storage with a link-time-
+    // fixed footprint (checked against the budget at compile time — see
+    // budget.rs); the pump below is the whole runtime.
+    static GRAPH: StaticCell<Graph> = StaticCell::new();
+    let graph = GRAPH.init(Graph::build());
+
     loop {
+        graph.step();
         core::hint::spin_loop();
     }
 }
