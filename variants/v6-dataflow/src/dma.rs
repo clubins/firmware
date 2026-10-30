@@ -28,6 +28,9 @@ pub mod i2s_pdm {
     /// Bytes per Fast window: 48 000 Hz × 0.125 s × 2 B.
     pub const WINDOW_BYTES: usize =
         SAMPLE_RATE_HZ as usize * BYTES_PER_SAMPLE * FAST_WINDOW_MS as usize / 1000;
+    /// Fast windows handed per second at the sustained rate (one per
+    /// 125 ms window — exact, no drift).
+    pub const WINDOWS_PER_S: u64 = 1000 / FAST_WINDOW_MS as u64;
 }
 
 /// Domain constants for the UART engine (PMS5003 front-end).
@@ -40,12 +43,21 @@ pub mod uart {
     pub const BYTES_PER_S: u32 = BAUD / BITS_PER_BYTE;
     /// PMS5003 frame length (start ×2, length, data ×28, checksum).
     pub const FRAME_BYTES: usize = 32;
+    /// Whole frames handed per second at the sustained wire rate
+    /// (11 520 B/s ÷ 32 B per frame — exact, no drift).
+    pub const FRAMES_PER_S: u64 = BYTES_PER_S as u64 / FRAME_BYTES as u64;
 }
 
 /// A simulated DMA engine producing a deterministic byte stream into a
 /// ring. Never blocks; losses are counted, never torn.
 pub struct SimulatedDma {
     frame_len: usize,
+    /// Sustained frame rate (frames per second) of the clocked
+    /// [`SimulatedDma::handoff`] model; 0 for hand-stepped engines.
+    rate_frames_per_s: u64,
+    /// Unhanded milli-frames carried between clocked handoffs, so odd
+    /// rates × short intervals sum to the exact sustained throughput.
+    rate_milliframes: u64,
     next_frame: u64,
     frames: u64,
     overruns: u64,
@@ -53,10 +65,39 @@ pub struct SimulatedDma {
 }
 
 impl SimulatedDma {
-    /// An engine handing `frame_len`-byte frames.
+    /// An engine handing `frame_len`-byte frames. No sustained rate: it
+    /// is stepped by hand with [`SimulatedDma::transfer`] (the graph pump
+    /// does this one frame per step).
     pub const fn new(frame_len: usize) -> Self {
         Self {
             frame_len,
+            rate_frames_per_s: 0,
+            rate_milliframes: 0,
+            next_frame: 0,
+            frames: 0,
+            overruns: 0,
+            bytes: 0,
+        }
+    }
+
+    /// The I2S/PDM engine: one 12 000-byte Fast window per handoff, 8
+    /// windows/s sustained (48 kHz mono 16-bit, 125 ms windows).
+    pub const fn i2s_pdm() -> Self {
+        Self::clocked(i2s_pdm::WINDOW_BYTES, i2s_pdm::WINDOWS_PER_S)
+    }
+
+    /// The UART engine: one 32-byte PMS5003 frame per handoff unit, 360
+    /// frames/s sustained (115 200 Bd 8N1 ÷ 10 bits/byte ÷ 32 B).
+    pub const fn uart() -> Self {
+        Self::clocked(uart::FRAME_BYTES, uart::FRAMES_PER_S)
+    }
+
+    /// An engine with an explicit sustained rate (frames per second).
+    const fn clocked(frame_len: usize, frames_per_s: u64) -> Self {
+        Self {
+            frame_len,
+            rate_frames_per_s: frames_per_s,
+            rate_milliframes: 0,
             next_frame: 0,
             frames: 0,
             overruns: 0,
@@ -122,6 +163,27 @@ impl SimulatedDma {
             }
         }
         handed
+    }
+
+    /// Clocked handoff: credit `elapsed_ms` of sustained-rate production
+    /// and hand every frame that became due into `ring`. The milli-frame
+    /// accumulator carries sub-frame remainders, so summing many short
+    /// handoffs reproduces the exact sustained rate (the UART engine's
+    /// 360 frames/s is 36 frames per 100 ms tick, 3.6 per 10 ms tick).
+    /// Returns how many frames landed this call. Never blocks; overruns
+    /// are counted by [`SimulatedDma::transfer`] exactly as for
+    /// hand-stepped engines. Rate-0 engines hand nothing.
+    pub fn handoff<const CAP: usize>(
+        &mut self,
+        ring: &Spsc<u8, CAP>,
+        elapsed_ms: u32,
+    ) -> usize {
+        self.rate_milliframes = self
+            .rate_milliframes
+            .saturating_add(self.rate_frames_per_s.saturating_mul(u64::from(elapsed_ms)));
+        let due = (self.rate_milliframes / 1000) as usize;
+        self.rate_milliframes %= 1000;
+        self.transfer(ring, due)
     }
 }
 
@@ -253,5 +315,60 @@ mod tests {
         assert_eq!(ring.pop(), Some(1));
         assert_eq!(ring.pop(), Some(2));
         assert_eq!(ring.pop(), Some(3));
+    }
+
+    #[test]
+    fn clocked_domain_rates_are_exact() {
+        // The rate model only stays honest if the divides were exact.
+        assert_eq!(i2s_pdm::WINDOWS_PER_S, 8);
+        assert_eq!(uart::FRAMES_PER_S, 360);
+        assert_eq!(SimulatedDma::i2s_pdm().frame_len(), i2s_pdm::WINDOW_BYTES);
+        assert_eq!(SimulatedDma::uart().frame_len(), uart::FRAME_BYTES);
+    }
+
+    #[test]
+    fn handoff_reproduces_the_sustained_rate() {
+        // One second of UART in a single handoff: exactly 360 frames,
+        // 11 520 bytes — the sustained wire rate, no drift.
+        let ring: Spsc<u8, 16_384> = Spsc::new();
+        let mut engine = SimulatedDma::uart();
+        assert_eq!(engine.handoff(&ring, 1000), 360);
+        assert_eq!(engine.frames(), 360);
+        assert_eq!(engine.overruns(), 0);
+        assert_eq!(engine.bytes(), u64::from(uart::BYTES_PER_S));
+        // One second of I2S/PDM in a single handoff: 8 windows due, but
+        // the ring holds one 12 000-byte window — 1 lands, 7 overrun.
+        let pcm: Spsc<u8, 16_384> = Spsc::new();
+        let mut pdm = SimulatedDma::i2s_pdm();
+        assert_eq!(pdm.handoff(&pcm, 1000), 1);
+        assert_eq!(pdm.overruns(), 7);
+        assert_eq!(pcm.len(), i2s_pdm::WINDOW_BYTES);
+    }
+
+    #[test]
+    fn handoff_carries_milli_frame_remainders() {
+        // 10 ms of UART = 3.6 frames: three whole frames, the 0.6 carried.
+        let ring: Spsc<u8, 16_384> = Spsc::new();
+        let mut engine = SimulatedDma::uart();
+        assert_eq!(engine.handoff(&ring, 10), 3);
+        // Next 10 ms: the carry sums to 4.2 due — four whole frames.
+        assert_eq!(engine.handoff(&ring, 10), 4);
+        // 20 ms at 360 fps is 7.2 frames — 3 + 4, exact in total.
+        assert_eq!(engine.frames(), 7);
+        // Sub-frame ticks accumulate too: three 1 ms ticks (3.6 frames
+        // total) hand the first whole frame on the third tick.
+        let mut drip = SimulatedDma::uart();
+        let drip_ring: Spsc<u8, 16_384> = Spsc::new();
+        assert_eq!(drip.handoff(&drip_ring, 1), 0);
+        assert_eq!(drip.handoff(&drip_ring, 1), 0);
+        assert_eq!(drip.handoff(&drip_ring, 1), 1);
+    }
+
+    #[test]
+    fn rate_zero_engine_hands_nothing() {
+        let ring: Spsc<u8, 16_384> = Spsc::new();
+        let mut engine = SimulatedDma::new(uart::FRAME_BYTES);
+        assert_eq!(engine.handoff(&ring, 1000), 0);
+        assert!(ring.is_empty());
     }
 }

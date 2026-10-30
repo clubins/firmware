@@ -31,6 +31,12 @@ pub struct Node {
     emitted: u64,
 }
 
+impl Default for Node {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Node {
     pub const fn new() -> Self {
         Self {
