@@ -17,6 +17,9 @@
 //! - [`config`] — the device config: committed `config/default.toml`
 //!   resolved over built-in constants (unknown keys tolerated with a warn
 //!   list; serialization carries a secret-exclusion tripwire);
+//! - [`nvs`] — the NVS override layer: the top precedence rung, a
+//!   warn-and-skip posture, and the injectable override source (the
+//!   flash-backed source impl is device-side, behind `esp32s3`);
 //! - [`ops`] — flag-gated operations capabilities (OTA, provisioning, …).
 //!
 //! Pure logic throughout: everything here is `no_std`-compatible with
@@ -29,6 +32,7 @@ pub mod decl;
 pub mod engine;
 pub mod graph;
 pub mod measurement;
+pub mod nvs;
 pub mod ops;
 pub mod registry;
 
