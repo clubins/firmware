@@ -1,0 +1,8 @@
+## Component manager manifest for the workspace variant's main component.
+##
+## Every component used today (clubins_core, freertos, esp_log) is either a
+## project-local component under components/ or ships with ESP-IDF and is
+## referenced from main/CMakeLists.txt REQUIRES/PRIV_REQUIRES — no
+## managed-component downloads yet. nanopb (the MQTT v2 protobuf encoders)
+## lands with the MQTT transport task.
+dependencies: {}
