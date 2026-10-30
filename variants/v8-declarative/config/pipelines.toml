@@ -1,0 +1,52 @@
+# V8 declarative pipeline graph — compiled into the binary as boot defaults.
+#
+# This document IS the sensor configuration: every [[pipeline]] becomes a
+# running instance at boot. The interpreter (src/engine.rs) validates the
+# graph — kinds, parameters, references, cycles, cadences — and a bad
+# document fails the boot loudly, never silently.
+#
+# Cargo features gate which KINDS exist (src/registry.rs); this file gates
+# which INSTANCES run. Naming a kind whose flag is not compiled in — a
+# "pir" source, an "mqtt-ingest" sink — is a boot error, not a warning.
+# See README.md for the flag matrix and example documents under each flag.
+#
+# Cadence rules: every source declares a positive cadence_ms; a pipeline
+# sourced from another ("pipe") must declare a multiple of its upstream's
+# cadence, because a consumer cannot tick faster than its producer.
+
+[[pipeline]]
+# A-weighted Fast-window levels from the PDM microphone (sensor-decibel).
+# window_ms must stay 125: the Fast extrema contract in the decibel design
+# note is defined over 125 ms windows inside the 1 s report.
+name = "decibel-leq"
+source = { kind = "decibel", cadence_ms = 1000 }
+[[pipeline.stages]]
+kind = "a-weight"
+[[pipeline.stages]]
+kind = "window-stats"
+window_ms = 125
+overload_threshold_db = 120.0
+offset_db = 0.0
+[pipeline.sink]
+kind = "http-ingest"
+type = "decibel"
+
+[[pipeline]]
+# Status heartbeat — both ingest contracts expect one (ops-status).
+name = "status"
+source = { kind = "clock", cadence_ms = 60000 }
+[pipeline.sink]
+kind = "status-heartbeat"
+
+[[pipeline]]
+# Hourly rollup of the decibel stream — demonstrates the pipe edge: the
+# source is another pipeline, not hardware. 60000 is a multiple of the
+# upstream 1000 ms cadence, as the validator requires.
+name = "decibel-hourly"
+source = { kind = "pipe", pipeline = "decibel-leq", cadence_ms = 60000 }
+[[pipeline.stages]]
+kind = "aggregate"
+window_s = 3600
+[pipeline.sink]
+kind = "http-ingest"
+type = "decibel"
