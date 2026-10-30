@@ -1,0 +1,4 @@
+# Formatting gate for `just fmt` — same rustfmt settings as the monorepo's
+# treefmt setup (rustfmt edition 2024, max_width 90).
+edition = "2024"
+max_width = 90

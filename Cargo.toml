@@ -1,0 +1,48 @@
+[package]
+name = "clubins-firmware"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.0"
+description = "Clubins venue-sensor firmware for the ESP32-S3 — every capability behind a flag"
+repository = "https://github.com/clubins/firmware"
+build = "build.rs"
+
+# No default features: an image carries exactly what its flags select (spec
+# §Feature Matrix). Which sensors/transports ship in the default image is a
+# release decision made at build time, not a hard-wired default here.
+[features]
+default = []
+
+# Sensors — each enables its driver and registry arm.
+sensor-decibel = []                # SPK0641HT4H-1 PDM mic, I2S0 @ 48 kHz
+sensor-pax = ["driver-gpio"]       # occupancy front-end (PIR)
+sensor-bme280 = ["driver-i2c"]     # temperature + humidity + pressure
+sensor-sht4x = ["driver-i2c"]      # temperature + humidity
+sensor-scd4x = ["driver-i2c"]      # CO2
+sensor-pms5003 = ["driver-uart"]   # PM2.5 particulates
+sensor-bh1750 = ["driver-i2c"]     # ambient light
+
+# Transports — config selects the active one at runtime.
+transport-http = ["net-wifi"]              # working JSON ingest
+transport-mqtt = ["net-wifi", "proto-v2"]  # MQTT v2 protobuf contract
+transport-mtls = ["transport-mqtt"]        # client certs from NVS
+
+# Ops
+ota = []
+provisioning = ["net-wifi"]
+deep-sleep = []
+logging-defmt = []
+ops-status = []
+
+# Internal plumbing — keeps dependency graphs honest; not part of the public
+# flag matrix (spec §Flag Matrix).
+driver-i2c = []
+driver-uart = []
+driver-gpio = []
+net-wifi = []
+proto-v2 = []
+
+# esp-hal compiles only for the Xtensa target, so it is declared
+# target-specific: host builds and host tests never pull it in.
+[target.'cfg(target_arch = "xtensa")'.dependencies]
+esp-hal = { version = "=1.2.2", features = ["esp32s3"] }
