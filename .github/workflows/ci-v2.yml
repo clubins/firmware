@@ -55,4 +55,4 @@ jobs:
       - name: link default features
         run: nix-shell --pure --run 'just xtensa'
       - name: link all features
-        run: nix-shell --pure --run 'just xtensa-all'
+        run: nix-shell --pure --run 'just xtensa --all-features'
