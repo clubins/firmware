@@ -27,3 +27,8 @@ pub mod graph;
 pub mod measurement;
 pub mod ops;
 pub mod registry;
+
+/// The HTTP JSON ingest codec — exists only when the device has an HTTP
+/// transport to feed it to.
+#[cfg(feature = "transport-http")]
+pub mod http_json;
