@@ -1,0 +1,17 @@
+# ESP32-S3 target wiring, per the proven recipe in
+# docs/research/firmware-internals-build-and-ci.md:
+#
+# - rust-lld: the GCC driver cannot link cross-endian Xtensa objects
+#   ("cross-endian linking ... not supported"); rust-lld is esp-hal's own CI
+#   recipe.
+# - -Tlinkall.x: esp-hal's linker scripts are mandatory — without them
+#   rust-lld fails with `relocation R_XTENSA_SLOT0_OP out of range`.
+# - -Zbuild-std=core,alloc: passed on the build-esp command line (not here),
+#   so host builds never rebuild the standard crates. The pinned fork ships
+#   no prebuilt rust-std for the Xtensa target; alloc must be rebuilt too.
+#
+# Xtensa-only code is gated on cfg(target_arch = "xtensa"), not on a cargo
+# feature, so `--all-features` stays host-safe.
+[target.xtensa-esp32s3-none-elf]
+linker = "rust-lld"
+rustflags = ["-C", "link-arg=-Tlinkall.x"]
