@@ -19,8 +19,11 @@ lint:
 build:
     cargo build --locked
 
+# Default-feature suites plus the sensor-driver suites, which only exist
+# under their feature flags (register_flow needs both drivers).
 test:
     cargo test --locked
+    cargo test --locked --features sensor-bme280,sensor-sht4x
 
 # ESP32-S3 release ELF on the pinned fork toolchain. Extra features are
 # passed through, e.g.: just build-esp "--all-features"

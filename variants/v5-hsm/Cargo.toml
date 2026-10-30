@@ -13,6 +13,13 @@ name = "firmware_v5_hsm"
 name = "ingest_conformance"
 required-features = ["transport-http"]
 
+# Register-flow tests drive both real driver machines through the central
+# dispatcher against recorded I2C transaction sequences; they need both
+# sensor flags (which pull the shared driver-i2c bus abstraction).
+[[test]]
+name = "register_flow"
+required-features = ["sensor-bme280", "sensor-sht4x"]
+
 # Capability flags — spec §Feature Matrix (docs/spec/…build-spec.html).
 # Every public leaf is independent; any combination must compile. The five
 # plumbing flags (driver-i2c, driver-uart, driver-gpio, net-wifi, proto-v2)
