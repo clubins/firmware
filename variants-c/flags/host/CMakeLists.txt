@@ -74,3 +74,17 @@ target_compile_definitions(
 )
 target_link_libraries(test_ingest_conformance PRIVATE clubins_core)
 add_test(NAME ingest_conformance COMMAND test_ingest_conformance)
+
+add_executable(test_config
+    test_config.c
+    "${CLUBINS_UNITY_DIR}/unity.c"
+)
+target_include_directories(test_config PRIVATE "${CLUBINS_UNITY_DIR}")
+target_compile_definitions(
+    test_config
+    PRIVATE CLUBINS_DEFAULT_TOML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../config/default.toml"
+    # Doubles are pool fields; enable Unity's double comparisons for this target.
+    PRIVATE UNITY_INCLUDE_DOUBLE
+)
+target_link_libraries(test_config PRIVATE clubins_core)
+add_test(NAME config COMMAND test_config)
