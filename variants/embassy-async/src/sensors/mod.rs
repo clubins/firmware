@@ -25,6 +25,10 @@
 pub mod bme280;
 #[cfg(feature = "driver-i2c")]
 pub mod i2c;
+#[cfg(any(feature = "sensor-sht4x", feature = "sensor-scd4x"))]
+pub mod sensirion;
+#[cfg(feature = "sensor-sht4x")]
+pub mod sht4x;
 
 /// Wait for `ms` milliseconds of hardware time (a conversion window, a
 /// measurement period). Implementations yield the executor while they wait —
