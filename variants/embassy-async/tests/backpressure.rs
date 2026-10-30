@@ -116,7 +116,7 @@ fn stalled_measurement_traffic_does_not_stall_status() {
         // Status producer: interleaved with the measurement flood.
         async {
             let mut seq = Sequencer::new();
-            for i in 0..(STATUS_QUEUE_DEPTH * 2) {
+            for _ in 0..(STATUS_QUEUE_DEPTH * 2) {
                 queues
                     .status
                     .send(status_event(seq.next_seq(), "wifi"))
