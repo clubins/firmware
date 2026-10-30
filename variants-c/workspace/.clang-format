@@ -1,0 +1,14 @@
+---
+# C convention for the C1 flags variant: LLVM base, 4-space indent (ESP-IDF
+# house style), 100 columns. CI enforces it (ci-c1.yml, format job) over
+# every C source/header here except the vendored Unity copy.
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 100
+AllowShortFunctionsOnASingleLine: None
+# ESP-IDF house style: function braces on their own line, control-flow
+# braces attached (LLVM default).
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+SortIncludes: CaseInsensitive

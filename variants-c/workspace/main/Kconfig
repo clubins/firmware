@@ -1,0 +1,13 @@
+# Per-component Kconfig for the main (composition) component.
+
+menu "Clubins workspace main"
+
+    config CLUBINS_LOOP_PERIOD_MS
+        int "Composition tick period (milliseconds)"
+        default 1000
+        help
+            Period of the FreeRTOS software timer that drives the composed
+            tick — sample every composed sensor, then tick the composed
+            transport/ops hooks (V2's sampling loop at scaffold fidelity).
+
+endmenu
