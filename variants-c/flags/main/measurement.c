@@ -59,7 +59,9 @@ bool clubins_measurement_equal(const clubins_measurement_t *a, const clubins_mea
     if (a == NULL || b == NULL || a->type != b->type) {
         return false;
     }
-    if (a->type == CLUBINS_MEAS_STATUS) {
+    switch (a->type) {
+    case CLUBINS_MEAS_STATUS:
+    {
         /* Strings first: NULL renders as "" on the wire, so two NULLs and
          * two empty strings are the same status. */
         const char *a_sub = (a->as.status.subsystem != NULL) ? a->as.status.subsystem : "";
@@ -69,7 +71,29 @@ bool clubins_measurement_equal(const clubins_measurement_t *a, const clubins_mea
         return a->as.status.result == b->as.status.result && strcmp(a_sub, b_sub) == 0 &&
                strcmp(a_msg, b_msg) == 0;
     }
-    /* The union members are all plain-old-data and disjoint per type, so a
-     * byte compare over the union's storage is exact for every type. */
-    return memcmp(&a->as, &b->as, sizeof(a->as)) == 0;
+    case CLUBINS_MEAS_DECIBEL:
+        return a->as.decibel.dba == b->as.decibel.dba && a->as.decibel.dbc == b->as.decibel.dbc;
+    case CLUBINS_MEAS_PAX:
+        return a->as.pax.occupancy_count == b->as.pax.occupancy_count;
+    case CLUBINS_MEAS_WEATHER:
+        /* Field by field: struct padding bytes are unspecified, so a
+         * byte-compare can fail two equal measurements built on different
+         * stacks. */
+        return a->as.weather.has_temperature == b->as.weather.has_temperature &&
+               a->as.weather.temperature_c == b->as.weather.temperature_c &&
+               a->as.weather.has_humidity == b->as.weather.has_humidity &&
+               a->as.weather.humidity_pct == b->as.weather.humidity_pct &&
+               a->as.weather.has_pressure == b->as.weather.has_pressure &&
+               a->as.weather.pressure_hpa == b->as.weather.pressure_hpa;
+    case CLUBINS_MEAS_CO2:
+        return a->as.co2.ppm == b->as.co2.ppm;
+    case CLUBINS_MEAS_PM25:
+        return a->as.pm25.ug_m3 == b->as.pm25.ug_m3;
+    case CLUBINS_MEAS_LIGHT:
+        return a->as.light.lux == b->as.light.lux;
+    case CLUBINS_MEAS_TYPE_COUNT:
+        return true;
+    default:
+        return false;
+    }
 }

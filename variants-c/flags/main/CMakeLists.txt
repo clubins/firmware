@@ -11,6 +11,7 @@ set(CLUBINS_SRCS
     "main.c"
     "cap_registry.c"
     "measurement.c"
+    "http_json.c"
     ${CLUBINS_CAP_SOURCES}
 )
 

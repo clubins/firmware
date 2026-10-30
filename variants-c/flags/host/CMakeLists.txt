@@ -23,6 +23,7 @@ set(CLUBINS_UNITY_DIR "${CLUBINS_APP_DIR}/host/unity")
 add_library(clubins_core STATIC
     "${CLUBINS_APP_DIR}/main/cap_registry.c"
     "${CLUBINS_APP_DIR}/main/measurement.c"
+    "${CLUBINS_APP_DIR}/main/http_json.c"
     ${CLUBINS_CAP_SOURCES}
 )
 target_include_directories(clubins_core PUBLIC "${CLUBINS_APP_DIR}/main")
@@ -45,3 +46,11 @@ add_executable(test_measurement_model
 target_include_directories(test_measurement_model PRIVATE "${CLUBINS_UNITY_DIR}")
 target_link_libraries(test_measurement_model PRIVATE clubins_core)
 add_test(NAME measurement_model COMMAND test_measurement_model)
+
+add_executable(test_http_json_codec
+    test_http_json_codec.c
+    "${CLUBINS_UNITY_DIR}/unity.c"
+)
+target_include_directories(test_http_json_codec PRIVATE "${CLUBINS_UNITY_DIR}")
+target_link_libraries(test_http_json_codec PRIVATE clubins_core)
+add_test(NAME http_json_codec COMMAND test_http_json_codec)
