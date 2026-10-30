@@ -87,7 +87,7 @@ impl SensorDriver for SkeletonDriver {
 
 #[cfg(feature = "sensor-decibel")]
 #[embassy_executor::task]
-pub(super) async fn decibel_sensor_task(measurements: MeasurementSender<'static>) {
+pub(super) async fn decibel_sensor_task(mut measurements: MeasurementSender<'static>) {
     let mut driver = SkeletonDriver::new(
         "decibel-sensor",
         "PDM capture + DSP arrive with the decibel task",
@@ -100,7 +100,7 @@ pub(super) async fn decibel_sensor_task(measurements: MeasurementSender<'static>
 
 #[cfg(feature = "sensor-pax")]
 #[embassy_executor::task]
-pub(super) async fn pax_sensor_task(measurements: MeasurementSender<'static>) {
+pub(super) async fn pax_sensor_task(mut measurements: MeasurementSender<'static>) {
     let mut driver =
         SkeletonDriver::new("pax-sensor", "GPIO PIR front-end arrives with the pax task");
     let mut clock = EmbassyClock;
@@ -111,7 +111,7 @@ pub(super) async fn pax_sensor_task(measurements: MeasurementSender<'static>) {
 
 #[cfg(feature = "sensor-bme280")]
 #[embassy_executor::task]
-pub(super) async fn bme280_sensor_task(measurements: MeasurementSender<'static>) {
+pub(super) async fn bme280_sensor_task(mut measurements: MeasurementSender<'static>) {
     let mut driver =
         SkeletonDriver::new("bme280-sensor", "I2C driver arrives with the bme280 task");
     let mut clock = EmbassyClock;
@@ -122,7 +122,7 @@ pub(super) async fn bme280_sensor_task(measurements: MeasurementSender<'static>)
 
 #[cfg(feature = "sensor-sht4x")]
 #[embassy_executor::task]
-pub(super) async fn sht4x_sensor_task(measurements: MeasurementSender<'static>) {
+pub(super) async fn sht4x_sensor_task(mut measurements: MeasurementSender<'static>) {
     let mut driver =
         SkeletonDriver::new("sht4x-sensor", "I2C driver arrives with the sht4x task");
     let mut clock = EmbassyClock;
@@ -133,7 +133,7 @@ pub(super) async fn sht4x_sensor_task(measurements: MeasurementSender<'static>) 
 
 #[cfg(feature = "sensor-scd4x")]
 #[embassy_executor::task]
-pub(super) async fn scd4x_sensor_task(measurements: MeasurementSender<'static>) {
+pub(super) async fn scd4x_sensor_task(mut measurements: MeasurementSender<'static>) {
     let mut driver =
         SkeletonDriver::new("scd4x-sensor", "I2C driver arrives with the scd4x task");
     let mut clock = EmbassyClock;
@@ -144,7 +144,7 @@ pub(super) async fn scd4x_sensor_task(measurements: MeasurementSender<'static>) 
 
 #[cfg(feature = "sensor-pms5003")]
 #[embassy_executor::task]
-pub(super) async fn pms5003_sensor_task(measurements: MeasurementSender<'static>) {
+pub(super) async fn pms5003_sensor_task(mut measurements: MeasurementSender<'static>) {
     let mut driver = SkeletonDriver::new(
         "pms5003-sensor",
         "UART driver arrives with the pms5003 task",
@@ -157,7 +157,7 @@ pub(super) async fn pms5003_sensor_task(measurements: MeasurementSender<'static>
 
 #[cfg(feature = "sensor-bh1750")]
 #[embassy_executor::task]
-pub(super) async fn bh1750_sensor_task(measurements: MeasurementSender<'static>) {
+pub(super) async fn bh1750_sensor_task(mut measurements: MeasurementSender<'static>) {
     let mut driver =
         SkeletonDriver::new("bh1750-sensor", "I2C driver arrives with the bh1750 task");
     let mut clock = EmbassyClock;
