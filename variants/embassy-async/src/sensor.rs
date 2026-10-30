@@ -144,6 +144,15 @@ pub trait Sleep {
     async fn sleep(&mut self, ms: u64);
 }
 
+/// A borrowed sleeper delegates: a driver holding `&mut S` sleeps through
+/// the same clock its owner still observes — the host tests hand a driver
+/// a borrowed [`fakes::MockClock`] and read its recorded sleeps afterwards.
+impl<S: Sleep> Sleep for &mut S {
+    async fn sleep(&mut self, ms: u64) {
+        <S as Sleep>::sleep(&mut **self, ms).await;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Task parameters
 // ---------------------------------------------------------------------------

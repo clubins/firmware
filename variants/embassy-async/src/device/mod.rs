@@ -15,6 +15,9 @@ use clubins_firmware_v3::features::{self, TransportSelection};
 
 mod tasks;
 
+#[cfg(feature = "sensor-pax")]
+mod gpio;
+
 #[cfg(feature = "sensor-pms5003")]
 mod uart;
 
@@ -53,6 +56,7 @@ async fn main(spawner: Spawner) {
         peripherals.UART1,
         peripherals.GPIO18,
         peripherals.GPIO17,
+        peripherals.GPIO4,
     );
 
     // The spawned tasks own all real work; this main task parks forever.
@@ -70,15 +74,16 @@ fn spawn_enabled_tasks(
     spawner: &Spawner,
     queues: &'static Queues,
     uart1: esp_hal::peripherals::UART1<'static>,
-    rx: esp_hal::peripherals::GPIO18<'static>,
-    tx: esp_hal::peripherals::GPIO17<'static>,
+    uart_rx: esp_hal::peripherals::GPIO18<'static>,
+    uart_tx: esp_hal::peripherals::GPIO17<'static>,
+    pir_pin: esp_hal::peripherals::GPIO4<'static>,
 ) {
     // Producers first: sensors and ops must be ready to publish before the
     // transport starts draining.
     #[cfg(feature = "sensor-decibel")]
     spawner.spawn(tasks::decibel_sensor_task(queues.measurements.sender()).unwrap());
     #[cfg(feature = "sensor-pax")]
-    spawner.spawn(tasks::pax_sensor_task(queues.measurements.sender()).unwrap());
+    spawner.spawn(tasks::pax_sensor_task(queues.measurements.sender(), pir_pin).unwrap());
     #[cfg(feature = "sensor-bme280")]
     spawner.spawn(
         tasks::bme280_sensor_task(
@@ -105,7 +110,8 @@ fn spawn_enabled_tasks(
     );
     #[cfg(feature = "sensor-pms5003")]
     spawner.spawn(
-        tasks::pms5003_sensor_task(queues.measurements.sender(), uart1, rx, tx).unwrap(),
+        tasks::pms5003_sensor_task(queues.measurements.sender(), uart1, uart_rx, uart_tx)
+            .unwrap(),
     );
     #[cfg(feature = "sensor-bh1750")]
     spawner.spawn(tasks::bh1750_sensor_task(queues.measurements.sender()).unwrap());
