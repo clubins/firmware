@@ -225,7 +225,7 @@ impl Graph {
         }
         #[cfg(feature = "sensor-sht4x")]
         {
-            self.sht4x.poll();
+            self.sht4x.poll(&mut self.i2c);
         }
         #[cfg(feature = "sensor-scd4x")]
         {
