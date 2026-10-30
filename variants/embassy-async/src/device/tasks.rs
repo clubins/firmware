@@ -29,14 +29,34 @@ use clubins_firmware_v3::sensor::{
 };
 use clubins_firmware_v3::session::Sequencer;
 
+#[cfg(any(
+    feature = "sensor-bme280",
+    feature = "sensor-sht4x",
+    feature = "sensor-scd4x"
+))]
+use clubins_firmware_v3::sensors::Wait;
+
 // ---- sensor task framework glue --------------------------------------------
 
 /// The device-side [`Sleep`](clubins_firmware_v3::sensor::Sleep) adapter:
 /// embassy-time sleeps, driven by the esp-hal timers through esp-rtos.
+/// The same unit also implements the driver-level [`Wait`] seam, so the
+/// I²C drivers share the clock the framework runs their tasks on.
 struct EmbassyClock;
 
 impl Sleep for EmbassyClock {
     async fn sleep(&mut self, ms: u64) {
+        Timer::after(Duration::from_millis(ms)).await;
+    }
+}
+
+#[cfg(any(
+    feature = "sensor-bme280",
+    feature = "sensor-sht4x",
+    feature = "sensor-scd4x"
+))]
+impl Wait for EmbassyClock {
+    async fn wait(&mut self, ms: u64) {
         Timer::after(Duration::from_millis(ms)).await;
     }
 }
@@ -85,6 +105,17 @@ impl SensorDriver for SkeletonDriver {
 
 // ---- sensors ---------------------------------------------------------------
 
+/// SHT4x I²C address with the ADDR pin low (0x45 when high). A per-board
+/// property — moves to `sensors.sht4x.i2c_address` in config when a board
+/// bring-up task owns the wiring, like `sensors.bme280.i2c_address`.
+#[cfg(feature = "sensor-sht4x")]
+const SHT4X_I2C_ADDRESS: u8 = 0x44;
+
+/// SCD4x I²C address — fixed by the datasheet (no address pin); there is
+/// nothing to configure.
+#[cfg(feature = "sensor-scd4x")]
+const SCD4X_I2C_ADDRESS: u8 = 0x62;
+
 #[cfg(feature = "sensor-decibel")]
 #[embassy_executor::task]
 pub(super) async fn decibel_sensor_task(mut measurements: MeasurementSender<'static>) {
@@ -111,9 +142,15 @@ pub(super) async fn pax_sensor_task(mut measurements: MeasurementSender<'static>
 
 #[cfg(feature = "sensor-bme280")]
 #[embassy_executor::task]
-pub(super) async fn bme280_sensor_task(mut measurements: MeasurementSender<'static>) {
-    let mut driver =
-        SkeletonDriver::new("bme280-sensor", "I2C driver arrives with the bme280 task");
+pub(super) async fn bme280_sensor_task(
+    mut measurements: MeasurementSender<'static>,
+    bus: super::i2c::SharedI2c<{ super::i2c::BME280_BUS }>,
+) {
+    let mut driver = clubins_firmware_v3::sensors::bme280::Bme280::new(
+        bus,
+        EmbassyClock,
+        config::BME280_I2C_ADDRESS,
+    );
     let mut clock = EmbassyClock;
     let params = SensorTaskParams::built_in();
     clubins_firmware_v3::sensor::run(&mut driver, &mut clock, &mut measurements, &params)
@@ -122,9 +159,15 @@ pub(super) async fn bme280_sensor_task(mut measurements: MeasurementSender<'stat
 
 #[cfg(feature = "sensor-sht4x")]
 #[embassy_executor::task]
-pub(super) async fn sht4x_sensor_task(mut measurements: MeasurementSender<'static>) {
-    let mut driver =
-        SkeletonDriver::new("sht4x-sensor", "I2C driver arrives with the sht4x task");
+pub(super) async fn sht4x_sensor_task(
+    mut measurements: MeasurementSender<'static>,
+    bus: super::i2c::SharedI2c<{ super::i2c::SHT4X_BUS }>,
+) {
+    let mut driver = clubins_firmware_v3::sensors::sht4x::Sht4x::new(
+        bus,
+        EmbassyClock,
+        SHT4X_I2C_ADDRESS,
+    );
     let mut clock = EmbassyClock;
     let params = SensorTaskParams::built_in();
     clubins_firmware_v3::sensor::run(&mut driver, &mut clock, &mut measurements, &params)
@@ -133,9 +176,16 @@ pub(super) async fn sht4x_sensor_task(mut measurements: MeasurementSender<'stati
 
 #[cfg(feature = "sensor-scd4x")]
 #[embassy_executor::task]
-pub(super) async fn scd4x_sensor_task(mut measurements: MeasurementSender<'static>) {
-    let mut driver =
-        SkeletonDriver::new("scd4x-sensor", "I2C driver arrives with the scd4x task");
+pub(super) async fn scd4x_sensor_task(
+    mut measurements: MeasurementSender<'static>,
+    bus: super::i2c::SharedI2c<{ super::i2c::SCD4X_BUS }>,
+) {
+    let mut wait = EmbassyClock;
+    let mut driver = clubins_firmware_v3::sensors::scd4x::Scd4x::new(
+        bus,
+        &mut wait,
+        SCD4X_I2C_ADDRESS,
+    );
     let mut clock = EmbassyClock;
     let params = SensorTaskParams::built_in();
     clubins_firmware_v3::sensor::run(&mut driver, &mut clock, &mut measurements, &params)
