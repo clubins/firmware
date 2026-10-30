@@ -20,6 +20,7 @@ use clubins_firmware_v3::channels::{
 };
 use clubins_firmware_v3::config;
 use clubins_firmware_v3::events::{StatusEvent, StatusResult};
+use clubins_firmware_v3::session::Sequencer;
 
 // ---- sensors ---------------------------------------------------------------
 
@@ -89,8 +90,12 @@ pub(super) async fn bh1750_sensor_task(_measurements: MeasurementSender<'static>
 // ---- ops -------------------------------------------------------------------
 
 #[cfg(feature = "ops-status")]
-fn status_event(result: StatusResult, message: &str) -> StatusEvent {
+fn status_event(seq: u32, result: StatusResult, message: &str) -> StatusEvent {
+    // time_ms stays 0 until a time-sync task lands (NTP discipline):
+    // "clock not synchronised" is the honest value, not a guess.
     let mut event = StatusEvent {
+        time_ms: 0,
+        seq,
         subsystem: heapless::String::new(),
         result,
         message: heapless::String::new(),
@@ -111,11 +116,15 @@ fn status_event(result: StatusResult, message: &str) -> StatusEvent {
 #[cfg(feature = "ops-status")]
 #[embassy_executor::task]
 pub(super) async fn ops_status_task(status: StatusSender<'static>) {
+    // topics.md session lifecycle: the status topic's seq starts at 0 on
+    // every boot — the boot report is its first message.
+    let mut seq = Sequencer::new();
     // Boot report + heartbeat: both contracts expect status to flow from the
     // first boot. Without a compiled transport these queue up and the
     // backpressure blocks this task — honest, and harmless on the bench.
     status
         .send(status_event(
+            seq.next_seq(),
             StatusResult::Started,
             "boot: embassy-async scaffold",
         ))
@@ -123,7 +132,11 @@ pub(super) async fn ops_status_task(status: StatusSender<'static>) {
     loop {
         Timer::after(Duration::from_millis(config::REPORT_INTERVAL_MS)).await;
         status
-            .send(status_event(StatusResult::Success, "heartbeat"))
+            .send(status_event(
+                seq.next_seq(),
+                StatusResult::Success,
+                "heartbeat",
+            ))
             .await;
     }
 }

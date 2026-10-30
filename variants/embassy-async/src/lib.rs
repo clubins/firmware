@@ -4,7 +4,8 @@
 //!
 //! - The library (this tree, `no_std`) holds every pure-logic concern: the
 //!   measurement/status event model, the typed bounded channels that connect
-//!   tasks, the built-in configuration constants, and the feature-resolution
+//!   tasks, the boot-session identity and per-topic sequencing those events
+//!   carry, the built-in configuration constants, and the feature-resolution
 //!   layer that turns the cargo flag matrix into a task plan. It compiles
 //!   and tests on the host, keeping CI fast.
 //! - The device personality (`src/main.rs` + `src/device/`, Xtensa only)
@@ -28,3 +29,4 @@ pub mod channels;
 pub mod config;
 pub mod events;
 pub mod features;
+pub mod session;

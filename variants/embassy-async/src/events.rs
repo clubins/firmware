@@ -116,6 +116,11 @@ pub struct MeasurementEvent {
     /// synchronised (MQTT v2 `Header.time_ms` semantics). For a decibel
     /// window this is the end of the window.
     pub time_ms: u64,
+    /// This topic's message counter within the boot, from the publishing
+    /// task's [`session::Sequencer`](crate::session::Sequencer): 0, 1, 2, ….
+    /// Together with the boot id it is the server's dedup key (`topics.md`);
+    /// the HTTP encoder also folds it into the `measurement_id` it sends.
+    pub seq: u32,
 }
 
 /// Closed status vocabulary — `knownResults` in `service/status.go`.
@@ -143,9 +148,17 @@ impl StatusResult {
     }
 }
 
-/// A status report from an ops task — the `service/status.go` payload shape.
+/// A status report from an ops task — the `service/status.go` payload shape
+/// plus the header pair every message carries (`topics.md`; the status topic
+/// has its own seq counter).
 #[derive(Debug, Clone, PartialEq)]
 pub struct StatusEvent {
+    /// Production timestamp, Unix epoch milliseconds UTC; `0` = clock not
+    /// synchronised (MQTT v2 `Header.time_ms` semantics).
+    pub time_ms: u64,
+    /// The status topic's message counter within the boot, from the
+    /// reporting task's [`session::Sequencer`](crate::session::Sequencer).
+    pub seq: u32,
     /// What part of the device is reporting (e.g. `lifecycle`, `power`).
     /// Open vocabulary on purpose: a new subsystem must not need a deploy.
     pub subsystem: HeapString<32>,
