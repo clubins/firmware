@@ -1,0 +1,4 @@
+# Formatting for CI (`just check` runs `cargo fmt --check`); the treefmt
+# workflow in the source monorepo uses the same edition and width.
+edition = "2024"
+max_width = 90

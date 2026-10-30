@@ -1,0 +1,13 @@
+# Xtensa link recipe, per docs/research/firmware-internals-build-and-ci.md:
+#
+# - rust-lld links the cross-endian ELF; the GCC driver cannot
+#   ("cross-endian linking ... not supported").
+# - esp-hal's linker scripts (-Tlinkall.x) are mandatory; without them
+#   rust-lld fails on R_XTENSA_SLOT0_OP relocations against `.literal.__atoi`.
+#
+# build-std is required because the esp-rs fork ships no prebuilt std for the
+# target. It is passed per invocation (CARGO_UNSTABLE_BUILD_STD in the
+# justfile) rather than here, so host builds never rebuild std from source.
+[target.xtensa-esp32s3-none-elf]
+linker = "rust-lld"
+rustflags = ["-C", "link-arg=-Tlinkall.x"]
