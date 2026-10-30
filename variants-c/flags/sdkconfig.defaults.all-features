@@ -1,9 +1,15 @@
-# The all-on anchor: every public capability leaf enabled. Used by the
-# all-features CI job (via -D SDKCONFIG_DEFAULTS) and by
-# `tools/flag-matrix.sh --device` for its all-on combination.
+# The all-on anchor: every public capability leaf enabled, self-contained
+# (target + capability list) so it can be passed as the single-file
+# SDKCONFIG_DEFAULTS without shell quoting — the esp-idf-ci-action wraps
+# its command in single quotes, which mangles any quoted argument (the
+# semicolon-separated two-file form broke the CI build with exit 127).
+# Used by the all-features CI job; `tools/flag-matrix.sh --device`
+# generates an equivalent file on the fly for each combination.
 #
 # Internal plumbing flags (DRIVER_I2C/UART/GPIO, NET_WIFI, PROTO_V2) are not
 # listed — Kconfig selects them from the leaves.
+
+CONFIG_IDF_TARGET="esp32s3"
 
 CONFIG_CLUBINS_CAP_SENSOR_DECIBEL=y
 CONFIG_CLUBINS_CAP_SENSOR_PAX=y
